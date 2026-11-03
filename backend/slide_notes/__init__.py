@@ -1,5 +1,6 @@
 import logging
 import os
+import re
 import shutil
 from pathlib import Path
 from threading import RLock
@@ -8,12 +9,12 @@ from uuid import uuid4
 
 from flask import Flask, g, jsonify, request, send_file, send_from_directory
 from pypdf import PdfReader
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from werkzeug.exceptions import HTTPException
 
-from .models import Material, Page, PageNote
+from .models import Material, Page, PageNote, QAEntry
 from .storage import file_hash, migrate_database, reset_storage
 
 BACKEND = Path(__file__).resolve().parents[1]
@@ -53,8 +54,14 @@ def create_app(data_dir=None):
     def material_json(material):
         return {"id": material.id, "filename": material.filename, "page_count": material.page_count}
 
+    def qa_json(entry):
+        return {"id": entry.id, "question": entry.question, "answer": entry.answer,
+                "position": entry.position, "version": entry.version, "deleted": entry.deleted}
+
     def page_json(page):
-        return {"id": page.id, "number": page.number, "note": page.note.content, "version": page.note.version}
+        return {"id": page.id, "number": page.number, "note": page.note.content, "version": page.note.version,
+                "summary": page.note.summary, "summary_version": page.note.summary_version,
+                "qa": [qa_json(entry) for entry in page.qa if not entry.deleted]}
 
     @app.errorhandler(HTTPException)
     def http_error(error):
@@ -168,6 +175,51 @@ def create_app(data_dir=None):
                 return jsonify(error="另一窗口已修改此页。你的内容仍保留，请复制备份后重新加载。", current=page_json(page)), 409
             page = session.get(Page, page_id)
             return jsonify(page_json(page))
+
+    @app.put("/api/pages/<page_id>/summary")
+    def save_summary(page_id):
+        body = request.get_json(silent=True)
+        if not isinstance(body, dict) or not isinstance(body.get("summary"), str) or type(body.get("version")) is not int or body["version"] < 0:
+            return jsonify(error="请提供总结文本和有效版本号。"), 400
+        if len(body["summary"]) > 1_000_000:
+            return jsonify(error="总结不能超过 100 万字符。"), 400
+        with Session(engine) as session, session.begin():
+            result = session.execute(update(PageNote).where(PageNote.page_id == page_id, PageNote.summary_version == body["version"]).values(summary=body["summary"], summary_version=PageNote.summary_version + 1))
+            page = session.get(Page, page_id)
+            if page is None:
+                return jsonify(error="页面不存在。"), 404
+            if result.rowcount == 0:
+                return jsonify(error="另一窗口已修改总结，请处理版本冲突。", current=page_json(page)), 409
+            return jsonify(page_json(page))
+
+    @app.put("/api/pages/<page_id>/qa/<entry_id>")
+    def save_qa(page_id, entry_id):
+        body = request.get_json(silent=True)
+        if not re.fullmatch(r"[0-9a-f]{32}", entry_id):
+            return jsonify(error="问答 ID 必须是 32 位小写十六进制字符串。"), 400
+        if not isinstance(body, dict) or type(body.get("version")) is not int or body["version"] < 0 or not all(isinstance(body.get(key), str) and len(body[key]) <= 1_000_000 for key in ("question", "answer")) or type(body.get("deleted", False)) is not bool:
+            return jsonify(error="请提供问题、回答、有效版本号和可选删除标记，文本各不超过 100 万字符。"), 400
+        with Session(engine) as session, session.begin():
+            if session.get(Page, page_id) is None:
+                return jsonify(error="页面不存在。"), 404
+            entry = session.get(QAEntry, entry_id)
+            if entry is not None and entry.page_id != page_id:
+                return jsonify(error="问答不属于此页。"), 404
+            if entry is None:
+                if body["version"] != 0:
+                    return jsonify(error="问答不存在。"), 404
+                position = session.scalar(select(func.max(QAEntry.position)).where(QAEntry.page_id == page_id))
+                entry = QAEntry(id=entry_id, page_id=page_id, position=(position or 0) + 1,
+                                question=body["question"], answer=body["answer"], version=1, deleted=body.get("deleted", False))
+                session.add(entry)
+                session.flush()
+            else:
+                result = session.execute(update(QAEntry).where(QAEntry.id == entry_id, QAEntry.version == body["version"], QAEntry.deleted.is_(False)).values(question=body["question"], answer=body["answer"], deleted=body.get("deleted", False), version=QAEntry.version + 1))
+                if result.rowcount == 0:
+                    session.refresh(entry)
+                    return jsonify(error="另一窗口已修改或删除问答，请处理版本冲突。", current=qa_json(entry)), 409
+                session.refresh(entry)
+            return jsonify(qa_json(entry))
 
     dist = BACKEND.parent / "frontend" / "dist"
 

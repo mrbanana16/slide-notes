@@ -121,12 +121,12 @@ npm --prefix frontend run build
 
 ### 配置与检查结论
 
-- [.run/frontend build.run.xml](../../.run/frontend%20build.run.xml)：`package-json` 指向 `$PROJECT_DIR$/frontend/package.json`，命令为 `run build`，Node.js 使用 `project`。配置目标正确。本机 IDE 已登记 `/usr/local/bin/node` 24.13.1；仍需在 IDE 内确认项目默认 Node.js 选择。
-- [.run/run backend.run.xml](../../.run/run%20backend.run.xml)：脚本为 `$PROJECT_DIR$/backend/run.py`，脚本模式，无额外参数；本机 `Python 3.11 (slide-notes)` SDK 指向项目 `backend/.venv/bin/python`，符合项目虚拟环境约定。
+- [.run/frontend build.run.xml](../../.run/frontend_build.run.xml)：`package-json` 指向 `$PROJECT_DIR$/frontend/package.json`，命令为 `run build`，Node.js 使用 `project`。配置目标正确。本机 IDE 已登记 `/usr/local/bin/node` 24.13.1；仍需在 IDE 内确认项目默认 Node.js 选择。
+- [.run/run backend.run.xml](../../.run/backend_run.run.xml)：脚本为 `$PROJECT_DIR$/backend/run.py`，脚本模式，无额外参数；本机 `Python 3.11 (slide-notes)` SDK 指向项目 `backend/.venv/bin/python`，符合项目虚拟环境约定。
 - 后端工作目录留空，本项目入口通过脚本位置导入代码，默认数据目录由后端文件位置确定，不依赖工作目录；当前无需修改此配置。若设置 `SLIDE_NOTES_DATA`，应使用绝对路径。
 - 启动顺序为先构建、后启动后端，两份配置均无自动前置任务。访问地址为 `http://127.0.0.1:5001`，不是 Vite 的 5173 端口。
 - IDE 启动方式已补充到 README 和本文件的运行方式中，原命令方式保留在其下方；前后端清单也补充配置位置。
-- PyCharm 的 `project` Node.js 别名使用项目默认运行时，参见 [JetBrains NPM 配置说明](https://www.jetbrains.com.cn/en-us/help/pycharm/run-debug-configuration-npm.html)。配置文件使用名称引用本机 Python SDK，首次导入或更换电脑时应重新关联解释器。
+- PyCharm 的 `project` Node.js 别名使用项目默认运行时，参见 [JetBrains NPM 配置说明](https://www.jetbrains.com.cn/en-us/help/pycharm/run-debug-configuration-npm.html)。配置文件使用名称引用本机 Python SDK，首次导入或重建虚拟环境时应重新关联解释器。
 
 ### 验证摘要
 

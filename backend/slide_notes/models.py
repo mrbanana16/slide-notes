@@ -29,6 +29,7 @@ class Page(Base):
     material_id: Mapped[str] = mapped_column(ForeignKey("materials.id"))
     number: Mapped[int] = mapped_column(Integer)
     note: Mapped["PageNote"] = relationship(cascade="all, delete-orphan", single_parent=True)
+    qa: Mapped[list["QAEntry"]] = relationship(cascade="all, delete-orphan", order_by="QAEntry.position, QAEntry.id")
 
 
 class PageNote(Base):
@@ -36,3 +37,16 @@ class PageNote(Base):
     page_id: Mapped[str] = mapped_column(ForeignKey("pages.id"), primary_key=True)
     content: Mapped[str] = mapped_column(Text, default="")
     version: Mapped[int] = mapped_column(Integer, default=0)
+    summary: Mapped[str] = mapped_column(Text, default="")
+    summary_version: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class QAEntry(Base):
+    __tablename__ = "qa_entries"
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    page_id: Mapped[str] = mapped_column(ForeignKey("pages.id"), index=True)
+    question: Mapped[str] = mapped_column(Text, default="")
+    answer: Mapped[str] = mapped_column(Text, default="")
+    position: Mapped[int] = mapped_column(Integer)
+    version: Mapped[int] = mapped_column(Integer, default=0)
+    deleted: Mapped[bool] = mapped_column(default=False)

@@ -8,7 +8,7 @@ vi.mock('pdfjs-dist', () => ({
 }))
 vi.mock('./PdfPage', () => ({ PdfPage: ({ number }: { number: number }) => <div>PDF 第 {number} 页</div> }))
 
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks() })
+afterEach(() => { cleanup(); localStorage.clear(); vi.unstubAllGlobals(); vi.restoreAllMocks() })
 const materials = [
   { id: 'a', filename: '第一份.pdf', page_count: 1 },
   { id: 'b', filename: '第二份.pdf', page_count: 1 },

@@ -63,9 +63,9 @@ def test_reset_rebuilds_database_removes_files_and_can_import_again(app):
     assert (data / 'unmanaged.txt').read_text() == 'do not delete unrelated files'
     assert b'private content' not in (data / 'app.sqlite3').read_bytes()
     with app.extensions['engine'].connect() as connection:
-        for table in ('materials', 'pages', 'page_notes'):
+        for table in ('materials', 'pages', 'page_notes', 'qa_entries'):
             assert connection.scalar(text(f'SELECT count(*) FROM {table}')) == 0
-        assert connection.scalar(text('SELECT version_num FROM alembic_version')) == '0002'
+        assert connection.scalar(text('SELECT version_num FROM alembic_version')) == '0003'
     restarted = create_app(data)
     try:
         assert restarted.test_client().get('/api/materials').get_json() == []

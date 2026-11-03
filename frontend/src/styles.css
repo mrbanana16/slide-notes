@@ -79,3 +79,42 @@ textarea::placeholder { color: #727d8d; }
 .dangerButton { margin-top: 12px; border-color: #e7b9bd; color: #a52a34; font-size: 12px; }
 .dangerButton:hover:not(:disabled) { background: #fff0f1; border-color: #a52a34; }
 .noticeBanner { padding: 12px 16px; border: 1px solid #b4d8c7; background: #f3fbf7; color: #237A57; font-size: 13px; line-height: 1.6; margin-bottom: 20px; }
+
+.notePanel { display: block; padding: 0; }
+.noteSection + .noteSection { border-top: 1px solid #DDE3EB; }
+.foldHeading { display: flex; gap: 10px; align-items: center; width: 100%; border: 0; border-radius: 0; padding: 16px 20px; text-align: left; }
+.foldHeading small { margin-left: auto; color: #687386; font-size: 11px; }
+.noteSection > div { padding: 0 20px 20px; }
+.sectionHint, .recoveryNotice { color: #687386; font-size: 12px; line-height: 1.65; }
+.fieldHeading, .qaHeading { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.fieldHeading label, .qaHeading strong { font-size: 13px; }
+.fieldHeading button, .qaHeading button { font-size: 12px; padding: 5px 9px; }
+.markdownField { margin: 12px 0; }
+.markdownField textarea { min-height: 140px; margin: 6px 0; border-color: #DDE3EB; padding: 10px; }
+.markdownPreview { min-height: 140px; line-height: 1.65; overflow-wrap: anywhere; overflow-x: auto; padding: 4px 0; }
+.markdownPreview h1 { font-size: 23px; }
+.markdownPreview table { border-collapse: collapse; display: block; overflow-x: auto; }
+.markdownPreview td, .markdownPreview th { border: 1px solid #DDE3EB; padding: 7px 10px; }
+.markdownPreview pre, .conflictBox pre { background: #F5F7FA; padding: 12px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+.markdownPreview blockquote { margin: 12px 0; padding-left: 12px; border-left: 3px solid #DDE3EB; color: #687386; }
+.markdownPreview a { color: #365FC7; }
+.imageOmitted { color: #687386; font-size: 12px; }
+.qaEntry { border-bottom: 1px solid #DDE3EB; padding: 16px 0; }
+.addQA { margin-top: 16px; width: 100%; color: #365FC7; }
+.conflictBox { background: #fff8eb; border: 1px solid #e4ca94; padding: 12px; margin-top: 12px; font-size: 12px; line-height: 1.65; }
+.conflictBox button { font-size: 12px; margin: 4px; }
+
+.saveError { color: #a52a34; }
+.codeBlock { margin: 14px 0; border: 1px solid #DDE3EB; border-radius: 6px; overflow: hidden; background: #F5F7FA; }
+.codeLanguage { padding: 6px 12px; border-bottom: 1px solid #DDE3EB; color: #687386; font-size: 12px; }
+.markdownPreview .codeBlock pre { margin: 0; white-space: pre; overflow-wrap: normal; }
+.codeBlock code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 13px; }
+.markdownPreview .hljs-keyword, .markdownPreview .hljs-selector-tag, .markdownPreview .hljs-literal { color: #174ea6; }
+.markdownPreview .hljs-string, .markdownPreview .hljs-regexp, .markdownPreview .hljs-addition { color: #237A57; }
+.markdownPreview .hljs-comment, .markdownPreview .hljs-quote { color: #687386; font-style: italic; }
+.markdownPreview .hljs-number, .markdownPreview .hljs-attr, .markdownPreview .hljs-symbol, .markdownPreview .hljs-bullet { color: #934512; }
+.markdownPreview .hljs-title, .markdownPreview .hljs-section, .markdownPreview .hljs-selector-class { color: #7542a3; }
+.markdownPreview .hljs-built_in, .markdownPreview .hljs-type, .markdownPreview .hljs-variable, .markdownPreview .hljs-attribute, .markdownPreview .hljs-meta { color: #166779; }
+.markdownPreview .hljs-deletion, .markdownPreview .hljs-name, .markdownPreview .hljs-tag { color: #a52a34; }
+.markdownPreview .hljs-emphasis { font-style: italic; }
+.markdownPreview .hljs-strong { font-weight: 600; }
