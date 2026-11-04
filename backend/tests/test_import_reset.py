@@ -26,7 +26,7 @@ def test_duplicate_content_preserves_pages_notes_and_file(app):
     client.put(f'/api/pages/{pages[0]["id"]}/note', json={'note': 'keep this', 'version': 0})
     response = upload(client, filename='renamed.pdf')
     assert response.status_code == 200
-    assert response.get_json() == {**first, 'duplicate': True}
+    assert response.get_json() == {**first, 'duplicate': True, 'location': {'course_name': '未分类', 'chapter_name': None}}
     assert client.get('/api/materials').get_json() == [first]
     assert client.get(pages_url).get_json()[0]['note'] == 'keep this'
     assert len(list((app.config['DATA_DIR'] / 'materials').iterdir())) == 1
@@ -53,7 +53,10 @@ def test_reset_rebuilds_database_removes_files_and_can_import_again(app):
     data = app.config['DATA_DIR']
     (data / 'tmp' / 'leftover.pdf').write_bytes(b'leftover upload')
     (data / 'unmanaged.txt').write_text('do not delete unrelated files')
-    assert client.post('/api/reset', json={'confirmation': 'DELETE_ALL_DATA'}).get_json() == {'reset': True}
+    result = client.post('/api/reset', json={'confirmation': 'DELETE_ALL_DATA'}).get_json()
+    assert result['reset'] is True
+    assert result['directory'] == client.get('/api/directory').get_json()
+    assert result['directory']['courses'][0]['is_system'] is True
     assert client.get('/api/materials').get_json() == []
     assert client.get(f'/api/materials/{material["id"]}/file').status_code == 404
     assert client.put(f'/api/pages/{page["id"]}/note', json={'note': 'late save', 'version': 1}).status_code == 404
@@ -65,7 +68,7 @@ def test_reset_rebuilds_database_removes_files_and_can_import_again(app):
     with app.extensions['engine'].connect() as connection:
         for table in ('materials', 'pages', 'page_notes', 'qa_entries'):
             assert connection.scalar(text(f'SELECT count(*) FROM {table}')) == 0
-        assert connection.scalar(text('SELECT version_num FROM alembic_version')) == '0003'
+        assert connection.scalar(text('SELECT version_num FROM alembic_version')) == '0005'
     restarted = create_app(data)
     try:
         assert restarted.test_client().get('/api/materials').get_json() == []

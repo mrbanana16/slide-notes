@@ -140,6 +140,22 @@ export class DraftStore {
     else { entry.value = entry.saved; entry.uncertain = false; entry.error = '页面不存在，请刷新目录。' }
     this.emit()
   }
+  removePages(pageIds: string[]) {
+    for (const [url, entry] of Object.entries(this.entries)) {
+      if (!pageIds.includes(entry.pageId)) continue
+      clearTimeout(this.timers.get(url)); this.timers.delete(url)
+      delete this.entries[url]
+    }
+    try {
+      for (const key of Object.keys(localStorage)) {
+        if (!key.startsWith(prefix)) continue
+        let pageId: string | undefined
+        try { pageId = JSON.parse(localStorage.getItem(key) ?? 'null')?.pageId } catch { continue }
+        if (pageId && pageIds.includes(pageId)) localStorage.removeItem(key)
+      }
+    } catch { this.storageError = '课件已删除，但本地草稿清理失败，请清理此站点存储。' }
+    this.emit()
+  }
   pause(value: boolean) { this.paused = value; for (const entry of Object.values(this.entries)) this.schedule(entry) }
   clear() {
     for (const timer of this.timers.values()) clearTimeout(timer)

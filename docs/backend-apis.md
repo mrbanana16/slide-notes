@@ -1,6 +1,6 @@
 # 后端接口列表
 
-最后更新：2026-11-04（阶段二，用户确认验收基本通过；本轮接口未变更）。本文件描述当前实现，每次阶段或迭代开发完成后更新。
+最后更新：2026-11-04（阶段三，用户确认验收通过）。本文件描述当前实现，每次阶段或迭代开发完成后更新。
 
 ## 请求约定与实现位置
 
@@ -13,7 +13,7 @@
 | 文件 | 作用 |
 |---|---|
 | [slide_notes/__init__.py](../backend/slide_notes/__init__.py) | `create_app`、路由、请求校验、事务及错误处理 |
-| [models.py](../backend/slide_notes/models.py) | Material、Page、PageNote、QAEntry 数据模型 |
+| [models.py](../backend/slide_notes/models.py) | Course、Chapter、DirectoryState、Material、Page、PageNote、QAEntry 数据模型 |
 | [storage.py](../backend/slide_notes/storage.py) | 数据库迁移初始化、SHA-256 计算、全量清空时的空数据库准备与文件切换／失败恢复 |
 | [0002_material_fingerprint.py](../backend/migrations/versions/0002_material_fingerprint.py) | 文件指纹字段及唯一索引；为旧课件回填指纹，保留已有重复课件与笔记 |
 | [test_import_reset.py](../backend/tests/test_import_reset.py) | 内容去重、并发导入、旧库迁移、清空确认／重建／失败恢复及与上传串行处理测试 |
@@ -23,11 +23,62 @@
 
 ## 阶段二数据迁移
 
-`backend/migrations/versions/0003_complete_notes.py` 为 `page_notes` 增加 `summary`、`summary_version`，新增 `qa_entries` 表及页面索引。已有个人笔记、版本与页面 ID 保留；旧页面总结为空、问答为空。所有保存接口沿用数据锁及数据库事务。`backend/tests/test_complete_notes.py` 验证旧库升级、独立版本、持久化、问答删除／冲突和参数校验；全量清空重建也使用 `0003`。
+`backend/migrations/versions/0003_complete_notes.py` 为 `page_notes` 增加 `summary`、`summary_version`，新增 `qa_entries` 表及页面索引。已有个人笔记、版本与页面 ID 保留；旧页面总结为空、问答为空。所有保存接口沿用数据锁及数据库事务。`backend/tests/test_complete_notes.py` 验证旧库升级、独立版本、持久化、问答删除／冲突和参数校验；该迁移在 `0004` 前执行；全量清空重建使用最新 `0005`。
+
+## 阶段三目录数据与接口
+
+[0004_course_structure.py](../backend/migrations/versions/0004_course_structure.py) 增加 `courses`、`chapters`、`directory_state`，为 `materials` 增加 `course_id`、可空 `chapter_id`、`position`。旧库有课件时创建“未分类课程”，按原文件名／ID 顺序归入课程直属；此为历史 `0004` 行为。后续 [0005_uncategorized_course.py](../backend/migrations/versions/0005_uncategorized_course.py) 为课程增加 `is_system`，创建固定 ID `00000000000000000000000000000000` 的系统“未分类”，固定在首位；将名称为“未分类课程”的旧容器及其章节／课件归并到系统分类，保留章节、课件、页、笔记和问答 ID。新库和清空后也始终存在这个系统分类；空库目录版本为 1。升级递增一次目录版本，避免旧窗口覆盖新结构；不修改已运行过的 `0004` 迁移。
+
+以下接口实现在 [directory.py](../backend/slide_notes/directory.py) 的 `register_directory` 中，沿用 `create_app` 的 API 锁和错误处理；前端主入口为 `App.tsx`，操作 UI 为 `Directory.tsx`，导入弹窗为 `ImportDialog.tsx`。
+
+| 方法 | 路径 | 处理函数 | 作用与参数 | 响应及主要错误 |
+|---|---|---|---|---|
+| GET | `/api/directory` | `directory` | 查询完整结构；无请求体 | 200：目录快照；500：存储错误 |
+| POST | `/api/courses` | `create_course` | JSON `{revision, name}`；新课程追加末尾 | 201：新快照；400：版本／名称类型或长度非法；409：旧版本 |
+| POST | `/api/chapters` | `create_chapter` | JSON `{revision, name, course_id}`；追加到课程末尾 | 201：新快照；400：名称／课程／版本非法；409：旧版本 |
+| PATCH | `/api/courses/{id}` | `rename` | JSON `{revision, name}`；系统“未分类”不能改名 | 200：新快照；400：非法参数或系统分类；404：不存在；409：旧版本 |
+| PATCH | `/api/chapters/{id}` | `rename` | JSON `{revision, name}`；不修改课程归属 | 同上 |
+| PATCH | `/api/materials/{id}` | `rename` | JSON `{revision, filename}`；仅修改显示名称，不改原文件 | 同上 |
+| DELETE | `/api/courses/{id}` | `delete_container` | JSON `{revision}`；仅普通空课程可删除，包括不能有空章节；系统分类永久保留 | 200：新快照；400：版本非法或系统分类保护；404：不存在；409：非空或旧版本 |
+| DELETE | `/api/chapters/{id}` | `delete_container` | JSON `{revision}`；仅空章节可删除 | 同上 |
+| GET | `/api/materials/{id}` | `material_details` | 查询删除影响；无请求体 | 200：课件字段及 `note_count`、`page_ids`；404：不存在 |
+| DELETE | `/api/materials/{id}` | `delete_material` | JSON `{revision, confirmation: "课件ID"}`；删除课件及关联笔记／原文件 | 200：新快照；400：版本／确认非法；404：不存在；409：旧版本；500：文件／数据库错误 |
+| PUT | `/api/directory/order` | `order` | 完整目录顺序和归属，见下文 | 200：新快照；400：集合不完整／重复／非法类型／章节跨课程／系统分类不在首位；409：旧版本或转移确认不匹配 |
+
+所有名称去除首尾空白后须为 1–200 个字符，允许同名，ID 不变。目录写入需当前整数 `revision`，不接受布尔值；比较失败返回 409 和 `error`，客户端重新 GET 获取当前结构后再操作。每次成功创建／改名／删除／排序递增一次；笔记保存不改变目录版本。无数据变化的合法重排也会递增。JSON 写入均可返回 500，不回显异常详情。
+
+目录快照示例：
+
+```json
+{
+  "revision": 3,
+  "courses": [{"id": "00000000000000000000000000000000", "name": "未分类", "position": 0, "is_system": true}, {"id": "course", "name": "数据结构", "position": 1, "is_system": false}],
+  "chapters": [{"id": "chapter", "course_id": "course", "name": "第一章", "position": 0}],
+  "materials": [{"id": "material", "filename": "课件.pdf", "page_count": 3, "course_id": "course", "chapter_id": "chapter", "position": 0}]
+}
+```
+
+课程额外包含 `is_system` 布尔值，首项始终为固定“未分类”。课程、章节分别按 `position`／ID 升序；课件数组按 `position`／ID，使用其归属字段分组后即为组内顺序。课件在旧 GET `/api/materials`、上传及详情响应中同样新增 `course_id`、`chapter_id`、`position` 字段；下方旧材料响应示例展示基础字段，实际包含新增字段。`note_count` 为非空个人笔记数 + 非空总结数 + 未删除问答条数，问答的问题／回答合计一条；`page_ids` 用于前端清理该课件草稿。
+
+排序请求示例（将课件从第一章移动为课程直属）：
+
+```json
+{
+  "revision": 3,
+  "course_ids": ["00000000000000000000000000000000", "course"],
+  "chapter_ids": {"00000000000000000000000000000000": [], "course": ["chapter"]},
+  "material_ids": {"00000000000000000000000000000000": [], "course": ["material"], "chapter": []},
+  "transfers": []
+}
+```
+
+必须完整包含所有现有课程和章节、所有组（包括空组）与全部课件；每个 ID 只能出现一次。`chapter_ids` 以课程 ID 为键，`material_ids` 以课程／章节 ID 为键。系统分类 ID 必须位于 `course_ids` 首项，实际请求须包含所有课程及其空组。章节仍只能在原课程内排序；课件允许跨课程移动，课程直属使用 `chapter_id: null`。跨课程移动需附带 `transfers` 列表，每条为 `{"material_id": "课件ID", "from_course_id": "源课程ID", "to_course_id": "目标课程ID"}`，必须精确匹配实际转移，不得重复、遗漏或额外声明；无转移时可省略或传 `[]`。确认列表类型／字段非法为 400，与实际变更不匹配为 409，均不写入。前端先经用户确认，再发送该列表。先验证全部集合及确认，再在单一事务中改课程、章节归属与位置；笔记、页面、问答 ID 与原始页码不变。
+
+删除课件先将原文件目录暂存到 `tmp/`，数据库事务失败则移回原目录，成功后移除暂存；页面、总结、笔记和问答级联删除，旧保存请求返回 404，不能重建已删页。前端确认后暂停保存排队，成功清除对应页的本地草稿并忽略迟到响应，失败则保留编辑。测试见 [test_directory.py](../backend/tests/test_directory.py)。
 
 ## IDE 启动入口
 
-PyCharm 共享配置为 [.run/backend_run.run.xml](../.run/backend_run.run.xml)，使用项目虚拟环境运行 `backend/run.py`，提供上述 `127.0.0.1:5001` 服务。依赖变化时先运行 `frontend_ci`，再运行 `frontend_build` 构建页面，最后运行 `backend_run`；三份配置没有自动串联。IDE 设置及其下方保留的命令方式见 [README 本地运行](../README.md#本地运行)。现有配置已由工作区改为上述名称，本轮未修改配置；命令及端口未变更。升级本轮代码时需要重新构建前端并停止旧后端后重启，启动自动执行尚未应用的迁移（当前 `0003`）；前端新增 Markdown 依赖，先运行 `npm --prefix frontend ci` 安装锁定版本。
+PyCharm 共享配置为 [.run/backend_run.run.xml](../.run/backend_run.run.xml)，使用项目虚拟环境运行 `backend/run.py`，提供上述 `127.0.0.1:5001` 服务。依赖变化时先运行 `frontend_ci`，再运行 `frontend_build` 构建页面，最后运行 `backend_run`；三份配置没有自动串联。IDE 设置及其下方保留的命令方式见 [README 本地运行](../README.md#本地运行)。现有配置已由工作区改为上述名称，本轮未修改配置；命令及端口未变更。升级本轮代码时需要重新构建前端并停止旧后端后重启，启动自动执行尚未应用的迁移（当前 `0005`）；前端新增 dnd-kit 依赖，先运行 `npm --prefix frontend ci` 安装锁定版本。
 
 ## 控制台诊断日志
 
@@ -39,7 +90,7 @@ PyCharm 共享配置为 [.run/backend_run.run.xml](../.run/backend_run.run.xml)�
 
 | 方法 | 请求链接（默认本机地址） | 处理函数 | 接口作用 | 前端调用位置 |
 |---|---|---|---|---|
-| GET | [http://127.0.0.1:5001/api/materials](http://127.0.0.1:5001/api/materials) | `list_materials` | 查询所有课件，按文件名、ID 排序 | [App.tsx](../frontend/src/App.tsx) 的 `loadMaterials` |
+| GET | [http://127.0.0.1:5001/api/materials](http://127.0.0.1:5001/api/materials) | `list_materials` | 查询所有课件，按课程 ID、章节 ID、位置、ID 返回扁平列表；界面目录以 `/api/directory` 为准 | [App.tsx](../frontend/src/App.tsx) （兼容查询；当前界面使用 `/api/directory`） |
 | POST | [http://127.0.0.1:5001/api/materials](http://127.0.0.1:5001/api/materials) | `upload` | 按内容识别重复文件；重复时返回已有课件，否则校验并创建课件及每页笔记记录 | [App.tsx](../frontend/src/App.tsx) 的 `upload` |
 | GET | `http://127.0.0.1:5001/api/materials/{material_id}/pages` | `pages` | 按原始页码查询页面、总结、个人笔记与未删除问答 | [App.tsx](../frontend/src/App.tsx) 的课件加载 effect |
 | GET | `http://127.0.0.1:5001/api/materials/{material_id}/file` | `file` | 读取课件原始 PDF，供 PDF.js 展示 | [App.tsx](../frontend/src/App.tsx) 的 `getDocument` |
@@ -64,7 +115,7 @@ PyCharm 共享配置为 [.run/backend_run.run.xml](../.run/backend_run.run.xml)�
 
 ### POST /api/materials
 
-表单字段：`file`，值为 PDF 文件。
+表单字段：`file`（PDF）、`course_id`（所属课程 ID）、`chapter_id`（可选章节 ID，空字符串视为无章节）。新界面必须选择课程；为兼容旧调用，省略 `course_id` 时使用固定系统“未分类”，不按名称查找或创建普通课程。提供归属时，课程必须存在、章节必须属于该课程，否则 400；校验失败清理临时文件和本次原文件。重复内容优先返回已有课件，不修改原归属。新导入追加到目标组末尾并递增目录版本，重复导入不递增。
 
 - 文件名须以 `.pdf` 结尾（不区分大小写）；实际内容须为可读取的 PDF。
 - 允许空密码即可读取的权限保护 PDF，拒绝需要输入打开密码、损坏及零页 PDF；请求体上限为 100 MiB（界面文案为 100 MB，multipart 开销也计入后端请求上限）。
@@ -77,10 +128,10 @@ PyCharm 共享配置为 [.run/backend_run.run.xml](../.run/backend_run.run.xml)�
 {"id": "<material_id>", "filename": "课件.pdf", "page_count": 3}
 ```
 
-重复导入返回 200，包含 `duplicate: true`，不创建新记录／文件，也不修改已有笔记：
+重复导入返回 200，包含 `duplicate: true` 和 `location`（`course_name`、可空 `chapter_name`），直接提供已有课件所在位置；不创建新记录／文件，也不修改已有笔记：
 
 ```json
-{"id": "<existing_material_id>", "filename": "原课件.pdf", "page_count": 3, "duplicate": true}
+{"id": "<existing_material_id>", "filename": "原课件.pdf", "page_count": 3, "duplicate": true, "location": {"course_name": "数据结构", "chapter_name": "第一章"}}
 ```
 
 数据库唯一指纹索引防止重复创建，同一后端进程内数据 API 串行处理。旧数据库升级时读取已有原文件回填指纹；对已有相同内容只给一条记录建立指纹入口，其余历史重复条目保留原 ID、文件及笔记，不做破坏性合并。缺失原文件的旧记录不参与指纹回填。
@@ -175,11 +226,11 @@ PyCharm 共享配置为 [.run/backend_run.run.xml](../.run/backend_run.run.xml)�
 成功返回 200：
 
 ```json
-{"reset": true}
+{"reset": true, "directory": {"revision": 1, "courses": [{"id": "00000000000000000000000000000000", "name": "未分类", "position": 0, "is_system": true}], "chapters": [], "materials": []}}
 ```
 
 - 先在数据目录内部准备当前迁移版本的空数据库，再释放连接池、切换数据库与存储目录；删除旧数据库、关联 sidecar 文件、上传原文件和临时文件。
-- 切换文件中途失败时恢复已移动的原数据库／目录并返回 500；成功时只保留空数据库及空的 `materials/`、`tmp/`。如清理旧存储失败，接口仍返回 500 并记录异常，不提示清空成功。
+- 切换文件中途失败时恢复已移动的原数据库／目录并返回 500；成功时数据库仅保留固定系统“未分类”与初始化目录版本，以及空的 `materials/`、`tmp/`。如清理旧存储失败，接口仍返回 500 并记录异常，不提示清空成功。
 - 不删除数据目录内的无关文件，不操作上传来源位置（例如下载目录）的原始文件。
 - 通过后端进程内锁与其他数据 API 串行，等待先前上传／保存结束再清空；旧页面 ID 此后无法保存，必须重新导入。
 - 该操作不可撤销。缺少或错误确认值返回 400；存储操作失败返回 500。普通 GET 不会触发清空。
@@ -195,4 +246,4 @@ PyCharm 共享配置为 [.run/backend_run.run.xml](../.run/backend_run.run.xml)�
 
 Flask 会为 GET 路由提供标准 HEAD 行为，并默认提供 OPTIONS 响应。开发环境页面和 PDF 辅助资源由 Vite 提供，配置位置为 [vite.config.ts](../frontend/vite.config.ts)。
 
-课程、章节、课件改名／删除、分类、隐藏及排序接口尚未实现。前端页面对应关系见 [前端页面列表](frontend-pages.md)，验证步骤见 [阶段二开发与验收记录](devlog/step2-complete-notes.md)。
+页面分类、隐藏及模式相关接口尚未实现。前端页面对应关系见 [前端页面列表](frontend-pages.md)，验证步骤见 [阶段三开发与验收记录](devlog/step3-course-structure.md)。

@@ -147,3 +147,28 @@ it('keeps a draft when the user reverts to the old text during an in-flight save
   first.dispose(); first.clear()
   finish(new Response(JSON.stringify({ ...page, version: 1 }))); await pending
 })
+it('removes only deleted material pages and ignores their late save without losing other drafts', async () => {
+  let finish!: (response: Response) => void
+  const fetch = vi.fn(() => new Promise<Response>(resolve => { finish = resolve }))
+  vi.stubGlobal('fetch', fetch)
+  const store = create()
+  store.bind({ ...page, id: 'other' })
+  const deleted = store.entries['/api/pages/p/note'], kept = store.entries['/api/pages/other/note']
+  store.edit(deleted, { note: 'delete' }); store.edit(kept, { note: 'keep' })
+  const pending = store.save(deleted)
+  store.pause(true); store.removePages(['p']); store.pause(false)
+  finish(new Response(JSON.stringify({ ...page, version: 1 }))); await pending
+  expect(store.entries[deleted.url]).toBeUndefined()
+  expect(kept.value.note).toBe('keep')
+  expect(Object.keys(localStorage).every(key => !key.endsWith(deleted.url))).toBe(true)
+  expect(store.dirtyPages).toBe(1)
+})
+it('reports storage removal errors after deletion while retaining unrelated drafts', () => {
+  const store = create(), entry = store.entries['/api/pages/p/note']
+  store.edit(entry, { note: 'delete' })
+  const spy = vi.spyOn(Storage.prototype, 'removeItem').mockImplementation(() => { throw new Error('storage unavailable') })
+  store.removePages(['p'])
+  expect(store.storageError).toContain('本地草稿清理失败')
+  expect(store.entries[entry.url]).toBeUndefined()
+  spy.mockRestore()
+})

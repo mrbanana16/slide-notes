@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from werkzeug.exceptions import HTTPException
 
 from .models import Material, Page, PageNote, QAEntry
+from .directory import SYSTEM_COURSE_ID, bump, destination as validate_destination, duplicate_json, material_json, register_directory, snapshot
 from .storage import file_hash, migrate_database, reset_storage
 
 BACKEND = Path(__file__).resolve().parents[1]
@@ -51,9 +52,6 @@ def create_app(data_dir=None):
         app.logger.log(level, "%s %s %s %.1fms", request.method, request.path, response.status_code, elapsed)
         return response
 
-    def material_json(material):
-        return {"id": material.id, "filename": material.filename, "page_count": material.page_count}
-
     def qa_json(entry):
         return {"id": entry.id, "question": entry.question, "answer": entry.answer,
                 "position": entry.position, "version": entry.version, "deleted": entry.deleted}
@@ -76,7 +74,7 @@ def create_app(data_dir=None):
     @app.get("/api/materials")
     def list_materials():
         with Session(engine) as session:
-            return jsonify([material_json(m) for m in session.scalars(select(Material).order_by(Material.filename, Material.id))])
+            return jsonify([material_json(m) for m in session.scalars(select(Material).order_by(Material.course_id, Material.chapter_id, Material.position, Material.id))])
 
     @app.post("/api/materials")
     def upload():
@@ -93,7 +91,7 @@ def create_app(data_dir=None):
                 existing = session.scalar(select(Material).where(Material.content_hash == digest))
                 if existing is not None:
                     app.logger.info("Duplicate PDF: material=%s", existing.id)
-                    return jsonify(**material_json(existing), duplicate=True), 200
+                    return jsonify(duplicate_json(session, existing)), 200
             try:
                 with temp.open("rb") as stream:
                     if stream.read(5) != b"%PDF-":
@@ -116,9 +114,16 @@ def create_app(data_dir=None):
             destination.mkdir()
             temp.replace(destination / "original.pdf")
             with Session(engine) as session, session.begin():
-                material = Material(id=material_id, filename=uploaded.filename.replace("\\", "/").split("/")[-1], page_count=count, content_hash=digest)
+                course_id = request.form.get("course_id")
+                chapter_id = request.form.get("chapter_id") or None
+                if course_id is None:
+                    course_id = SYSTEM_COURSE_ID
+                validate_destination(session, course_id, chapter_id)
+                position = session.scalar(select(func.max(Material.position)).where(Material.course_id == course_id, Material.chapter_id == chapter_id))
+                material = Material(course_id=course_id, chapter_id=chapter_id, position=(position if position is not None else -1) + 1, id=material_id, filename=uploaded.filename.replace("\\", "/").split("/")[-1], page_count=count, content_hash=digest)
                 material.pages = [Page(number=i, note=PageNote()) for i in range(1, count + 1)]
                 session.add(material)
+                bump(session)
                 session.flush()
                 result = material_json(material)
             committed = True
@@ -128,7 +133,7 @@ def create_app(data_dir=None):
             with Session(engine) as session:
                 existing = session.scalar(select(Material).where(Material.content_hash == digest))
                 if existing is not None:
-                    return jsonify(**material_json(existing), duplicate=True), 200
+                    return jsonify(duplicate_json(session, existing)), 200
             raise
         finally:
             temp.unlink(missing_ok=True)
@@ -142,7 +147,8 @@ def create_app(data_dir=None):
             return jsonify(error="请确认清空全部数据。"), 400
         reset_storage(data, engine)
         app.logger.warning("All application data reset")
-        return jsonify(reset=True)
+        with Session(engine) as session:
+            return jsonify(reset=True, directory=snapshot(session))
 
     @app.get("/api/materials/<material_id>/pages")
     def pages(material_id):
@@ -220,6 +226,8 @@ def create_app(data_dir=None):
                     return jsonify(error="另一窗口已修改或删除问答，请处理版本冲突。", current=qa_json(entry)), 409
                 session.refresh(entry)
             return jsonify(qa_json(entry))
+
+    register_directory(app, engine, data)
 
     dist = BACKEND.parent / "frontend" / "dist"
 

@@ -12,10 +12,35 @@ def new_id():
     return uuid4().hex
 
 
+class Course(Base):
+    __tablename__ = "courses"
+    is_system: Mapped[bool] = mapped_column(default=False)
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    name: Mapped[str] = mapped_column(Text)
+    position: Mapped[int] = mapped_column(Integer)
+
+
+class Chapter(Base):
+    __tablename__ = "chapters"
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    course_id: Mapped[str] = mapped_column(ForeignKey("courses.id"))
+    name: Mapped[str] = mapped_column(Text)
+    position: Mapped[int] = mapped_column(Integer)
+
+
+class DirectoryState(Base):
+    __tablename__ = "directory_state"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    revision: Mapped[int] = mapped_column(Integer)
+
+
 class Material(Base):
     __tablename__ = "materials"
     __table_args__ = (Index("uq_materials_content_hash", "content_hash", unique=True),)
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    course_id: Mapped[str] = mapped_column(ForeignKey("courses.id"))
+    chapter_id: Mapped[str | None] = mapped_column(ForeignKey("chapters.id"), nullable=True)
+    position: Mapped[int] = mapped_column(Integer, default=0)
     filename: Mapped[str] = mapped_column(Text)
     page_count: Mapped[int] = mapped_column(Integer)
     content_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)

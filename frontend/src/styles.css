@@ -1,4 +1,4 @@
-:root { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; color: #202733; background: #F5F7FA; font-synthesis: none; font-size: 15px; }
+:root { color-scheme: only light; font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; color: #202733; background: #F5F7FA; font-synthesis: none; font-size: 15px; }
 * { box-sizing: border-box; }
 body { margin: 0; }
 button, textarea { font: inherit; }
@@ -118,3 +118,53 @@ textarea::placeholder { color: #727d8d; }
 .markdownPreview .hljs-deletion, .markdownPreview .hljs-name, .markdownPreview .hljs-tag { color: #a52a34; }
 .markdownPreview .hljs-emphasis { font-style: italic; }
 .markdownPreview .hljs-strong { font-weight: 600; }
+
+input, select { font: inherit; min-width: 0; border: 1px solid #DDE3EB; border-radius: 4px; padding: 8px; background: #fff; color: #202733; }
+input:focus-visible, select:focus-visible, summary:focus-visible { outline: 3px solid #365FC7; outline-offset: 2px; }
+.directoryHeading { align-items: center; padding: 0 14px 6px; }
+.directoryHeading button { font-size: 12px; padding: 5px 8px; }
+.directoryHint { color: #687386; font-size: 11px; line-height: 1.7; padding: 0 14px; margin: 2px 0 12px; }
+.sidebar nav { padding: 0 8px 14px; flex: 1; }
+.courseSection { border-top: 1px solid #DDE3EB; padding: 8px 0; }
+.directoryRow { display: flex; align-items: center; position: relative; border-top: 2px solid transparent; min-width: 0; }
+.directoryRow.dropTarget { border-top-color: #365FC7; }
+.directoryRow.dragSource { opacity: .3; }
+.dragHandle { touch-action: none; color: #687386; border: 0; background: transparent; padding: 8px 3px; flex-shrink: 0; }
+.containerName { flex: 1; border: 0; text-align: left; padding: 8px 3px; overflow-wrap: anywhere; min-width: 0; font-size: 13px; font-weight: 600; }
+.chapterRow .containerName { font-weight: 500; }
+.courseContents { margin-left: 10px; border-left: 1px solid #DDE3EB; padding-left: 4px; }
+.directLabel { font-size: 11px; color: #687386; padding: 5px 16px; }
+.materialGroup { min-height: 38px; padding: 2px 0 4px; }
+.materialGroup.groupTarget { outline: 2px solid #365FC7; background: #edf2fc; }
+.directoryRow .material { margin: 0; min-width: 0; flex: 1; width: auto; padding: 7px 4px; }
+.directoryRow .material strong { font-size: 12px; }
+.directoryRow .material small { margin-top: 2px; }
+.groupEmpty { font-size: 11px; color: #687386; padding: 8px 12px; margin: 0; }
+.directoryActions { flex-shrink: 0; align-self: flex-start; }
+.directoryActions summary { list-style: none; cursor: pointer; padding: 7px 6px; border-radius: 4px; }
+.directoryActions summary::-webkit-details-marker { display: none; }
+.directoryActions[open] { z-index: 4; }
+.directoryActions > div { position: absolute; right: 0; top: 34px; width: 194px; background: #fff; border: 1px solid #DDE3EB; border-radius: 5px; padding: 6px; box-shadow: 0 5px 16px #20273320; }
+.directoryActions button { display: block; width: 100%; text-align: left; border: 0; padding: 7px 8px; font-size: 12px; }
+.directoryActions label { display: block; padding: 8px; color: #687386; font-size: 11px; }
+.directoryActions select { display: block; width: 100%; font-size: 12px; margin-top: 6px; }
+.directoryActions .deleteAction { color: #a52a34; }
+.directoryDragPreview { background: white; border: 1px solid #365FC7; padding: 12px; border-radius: 4px; box-shadow: 0 4px 12px #20273325; overflow-wrap: anywhere; font-size: 13px; }
+.importDialog { background: #FFFFFF; width: min(480px, calc(100vw - 32px)); max-height: calc(100dvh - 40px); overflow: auto; border: 1px solid #DDE3EB; border-radius: 8px; padding: 24px; color: #202733; }
+.importDialog::backdrop { background: #20273366; }
+.importDialog h2 { font-size: 21px; margin: 0; }
+.importDialog p { line-height: 1.7; font-size: 13px; color: #687386; }
+.importDialog label { display: block; margin-top: 18px; font-size: 13px; }
+.importDialog select { display: block; width: 100%; margin-top: 8px; }
+.importDialog .inlineCreate { display: flex; gap: 6px; margin: 16px 0; }
+.inlineCreate input { flex: 1; width: 100%; font-size: 12px; }
+.inlineCreate button { font-size: 12px; flex-shrink: 0; }
+.chooseFile { width: 100%; padding: 18px; border-style: dashed; overflow-wrap: anywhere; color: #365FC7; }
+.importDialog small { display: block; margin-top: 8px; color: #687386; font-size: 11px; }
+.importDialog .error { color: #a52a34; }
+.dialogFooter { display: flex; justify-content: flex-end; gap: 8px; margin-top: 24px; }
+
+.systemCourseBadge { color: #687386; font-size: 10px; white-space: nowrap; padding: 0 4px; }
+.duplicateNotice { margin-top: 16px; border: 1px solid #e4ca94; background: #fff8eb; padding: 12px; color: #202733; font-size: 13px; }
+.duplicateNotice p, .transferDetails p { overflow-wrap: anywhere; }
+.transferDetails { border-top: 1px solid #DDE3EB; padding-top: 14px; }

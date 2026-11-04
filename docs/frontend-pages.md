@@ -1,6 +1,6 @@
 # 前端页面列表
 
-最后更新：2026-11-04（阶段二，用户确认验收基本通过）。仅列当前实现；课程结构和三模式尚未实现。
+最后更新：2026-11-04（阶段三，用户确认验收通过）。仅列当前实现；复习／沉浸模式、页面分类与隐藏尚未实现。
 
 ## 页面与页面内状态
 
@@ -8,8 +8,14 @@
 
 | 页面／视图 | 进入方式与作用 | 主要操作 | 代码文件 | 关联接口 |
 |---|---|---|---|---|
-| 工作台初始视图 `/` | 首次进入、没有选中课件或清空后 | 导入 PDF、打开目录内课件、收起目录 | `frontend/src/App.tsx` | GET／POST `/api/materials` |
+| 工作台初始视图 `/` | 首次进入、没有选中课件或清空后 | 固定“未分类”、创建普通课程、导入 PDF、打开目录内课件、收起目录 | `frontend/src/App.tsx` | GET `/api/directory`、POST `/api/courses` |
 | 课件整理视图 `/` | 点击课件或完成导入；连续显示原始页码与该页笔记 | 查看 PDF、逐页编辑、折叠笔记区、预览 Markdown | `App.tsx`、`PdfPage.tsx`、`NoteEditor.tsx` | GET `/api/materials/{id}/pages`、GET `/api/materials/{id}/file` |
+| 课程目录 | 左侧课程 → 课程直属课件／章节 → 课件，均为 `/` 内状态 | 创建课程、添加章节、折叠、改名、上移下移、拖动排序、跨章节／课程移动，跨课程需确认；普通空容器删除 | `Directory.tsx`、`directoryOrder.ts`、`directoryDnd.ts`、`App.tsx` | GET `/api/directory`；POST `/api/courses`、`/api/chapters`；PATCH／DELETE `/api/courses/{id}`、`/api/chapters/{id}`；PATCH `/api/materials/{id}`；PUT `/api/directory/order` |
+| 导入归属弹窗 | 导入按钮或将 PDF 拖入工作区，原生 modal dialog | 选择课程和可选章节、创建课程、选择文件、取消／确认；错误时可重新加载目录 | `ImportDialog.tsx`、`App.tsx` | POST `/api/courses`；POST `/api/materials`；GET `/api/directory` |
+| 跨课程转移确认 | 课件拖到另一课程的标题／章节／课件／空区域，或菜单选择另一课程目标 | 展示源位置与目标位置；取消不请求，确认后更新归属，保留页 ID 和笔记；目标折叠时自动展开 | `TransferDialog.tsx`、`Directory.tsx`、`directoryOrder.ts` | PUT `/api/directory/order`，包含 `transfers` 确认列表 |
+| 重复课件提示 | 上传返回 `duplicate: true`，仍在导入弹窗 | 显示“课件已存在”和课程／可选章节／课件完整位置；选择打开已有课件或关闭，不自动切换课件 | `ImportDialog.tsx`、`App.tsx` | POST `/api/materials`；用户选择打开后 GET `/api/directory` 和原课件页面／文件 |
+| 删除课件确认 | 课件「⋯」菜单，先查询删除影响再显示确认框 | 显示页数、已保存笔记／问答数、当前未保存编辑数；取消保留，确认后清理对应页草稿与迟到响应 | `Directory.tsx`、`App.tsx`、`drafts.ts` | GET／DELETE `/api/materials/{id}` |
+| 目录保存失败／版本冲突 | 修改目录失败或其他窗口已变更目录 | 保持原结构、提示错误；重新加载目录后重做操作，保留笔记草稿 | `App.tsx`、`ImportDialog.tsx` | GET `/api/directory`；原目录写接口 |
 | AI 解释与总结区 | 每页右侧第一个独立折叠区 | 手动输入／粘贴总结，源码编辑与预览，标题提示有无内容 | `NoteEditor.tsx` | PUT `/api/pages/{page_id}/summary` |
 | 个人笔记区 | 每页右侧第二个独立折叠区 | Markdown 编辑与预览，保留阶段一已有笔记 | `NoteEditor.tsx` | PUT `/api/pages/{page_id}/note` |
 | 追问与 AI 解答区 | 每页右侧第三个独立折叠区；标题显示问答数 | 添加多条问答，分别编辑／预览问题与回答，确认后删除 | `NoteEditor.tsx` | PUT `/api/pages/{page_id}/qa/{entry_id}` |
@@ -17,6 +23,15 @@
 | 清空全部数据确认 | 目录底部按钮触发浏览器确认框 | 取消或确认删除；成功回到首次使用状态 | `App.tsx`、`drafts.ts` | POST `/api/reset` |
 
 以上源码路径均相对项目根目录，前端文件均位于 `frontend/src/`。API 请求封装在 `api.ts`，样式在 `styles.css`。
+
+## 目录交互
+
+- dnd-kit 拖动有独立把手、拖动预览与落点线；普通课程排序、同课程章节排序、课件排序及跨章节／课程移动由单次目录事务提交。可放到课程／章节标题（包括折叠状态）、课件或展开后的空组；跨课程先展示确认弹窗，确认前不提交。全部菜单操作均可用键盘完成。
+- 放下后按目标立即投影显示新目录，等待响应期间禁用其他目录变更；成功采用服务器快照，失败恢复原结构。拖动浮层禁用默认回到旧位置的落下动画，原行不叠加位移。
+- 系统“未分类”初始化即存在，固定在首位，不提供改名／删除／排序操作，但可接收及移出课件。清空后服务返回含此系统分类的快照，前端立即保留它。
+- 课件选择按钮与「⋯」操作菜单分开；上移／下移在边界禁用，移动下拉框按课程分组列出所有课程直属与章节，跨课程选择同样先确认。目录请求进行中禁用目录操作，错误不假装已保存。
+- 当前课件只在 ID 变化或显式重载时重新读取页面与 PDF；改名、排序与移动只更新目录／面包屑，编辑器及草稿继续工作。
+- 目录折叠状态仅留在当前组件会话，不写入数据库；排序和归属持久化。每个课程先显示直属课件，再显示按顺序排列的章节。
 
 ## 保存与草稿行为
 
@@ -29,11 +44,15 @@
 - 未实际编辑的对象隐藏底部保存状态和保存按钮，即使已有服务器内容也不自动显示；开始输入后显示，保存成功后仍保留，切换课件返回不重置本次编辑标识。恢复草稿、保存中及失败／冲突不能被隐藏，保存失败文字为红色。
 - Markdown 支持基础语法、表格、代码块、任务列表。代码块显示开头反引号后标注的语言，常用语言按关键字、字符串、数字、注释等分色；未知语言保留标签和原文，无语言时显示“纯文本”，行内代码不添加语言栏。预览不执行原始 HTML，图片以占位文字代替且不发出图片请求；安全链接在新标签页打开。
 - AI 总结和解答由用户手动输入或粘贴，本阶段不调用 AI API。
-- PDF 内容去重与阶段一一致，重复文件打开已有课件。清空成功后清理本站点全部阶段二草稿，迟到保存响应不会恢复旧数据；其他窗口需刷新。
+- PDF 内容去重与阶段一一致，重复文件在弹窗直接提示原位置，可选择打开已有课件。清空成功后清理本站点全部阶段二草稿，迟到保存响应不会恢复旧数据；其他窗口需刷新。
+
+## 界面主题
+
+当前统一浅色：`frontend/index.html` 声明 `color-scheme: light`，`styles.css` 根元素声明 `only light`，弹窗显式设置白色表面和正文颜色，表单使用浅色控件。应用内导入／转移弹窗不随系统主题变黑。完整浅色／深色主题专项实现列入 `PLAN.md` 阶段 5，当前未实现。
 
 ## 构建与启动
 
-PyCharm：按 README 安装更新后的依赖，停止旧 `run backend`／`backend_run` → 运行 `frontend_ci` → `frontend_build` → `backend_run` → 刷新 <http://127.0.0.1:5001/>。工作区现有 IDE 配置名为 `frontend_ci`、`frontend_build`、`backend_run`，分别执行安装、构建、服务启动，无自动串联；脚本路径、解释器要求和端口未变，后端启动自动迁移到 `0003`。
+PyCharm：按 README 安装更新后的依赖，停止旧 `run backend`／`backend_run` → 运行 `frontend_ci` → `frontend_build` → `backend_run` → 刷新 <http://127.0.0.1:5001/>。工作区现有 IDE 配置名为 `frontend_ci`、`frontend_build`、`backend_run`，分别执行安装、构建、服务启动，无自动串联；脚本路径、解释器要求和端口未变，后端启动自动迁移到 `0005`，旧“未分类课程”内容归入固定“未分类”。
 
 命令方式（项目根目录）：
 
@@ -43,4 +62,4 @@ npm --prefix frontend run build
 backend/.venv/bin/python backend/run.py
 ```
 
-接口详情见 [后端接口列表](backend-apis.md)，具体人工步骤见 [阶段二记录](devlog/step2-complete-notes.md)。
+接口详情见 [后端接口列表](backend-apis.md)，具体人工步骤见 [阶段三记录](devlog/step3-course-structure.md)。
