@@ -126,6 +126,23 @@ def test_pdf_range_requests_and_internal_filename(app):
     assert (app.config['DATA_DIR'] / 'materials' / material['id'] / 'original.pdf').exists()
 
 
+def test_module_assets_use_javascript_mime(app, monkeypatch):
+    import slide_notes
+
+    called = {}
+
+    def send_asset(directory, filename, *, mimetype=None):
+        called.update(directory=directory, filename=filename, mimetype=mimetype)
+        return app.response_class('export {}', content_type=mimetype)
+
+    monkeypatch.setattr(slide_notes, 'send_from_directory', send_asset)
+    response = app.test_client().get('/assets/pdf.worker.min-test.MJS')
+    assert response.status_code == 200
+    assert response.mimetype == 'text/javascript'
+    assert called['filename'] == 'assets/pdf.worker.min-test.MJS'
+    assert called['mimetype'] == 'text/javascript'
+
+
 @pytest.mark.parametrize('user_password', ['', 'required-password'])
 def test_pdf_open_password_distinct_from_owner_password(app, user_password):
     writer = PdfWriter()

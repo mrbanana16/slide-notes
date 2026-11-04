@@ -263,8 +263,8 @@ PyCharm 共享配置为 [.run/backend_run.run.xml](../.run/backend_run.run.xml)�
 | 方法 | 请求路径／链接 | 处理函数 | 作用与返回 |
 |---|---|---|---|
 | GET | [http://127.0.0.1:5001/](http://127.0.0.1:5001/) | `index` | 返回 `frontend/dist/index.html`；未构建时返回 503 和构建提示文本 |
-| GET | `http://127.0.0.1:5001/{filename}` | `assets` | 在 `frontend/dist/` 内安全读取静态文件；包括 `/assets/…` 及 `/pdf/cmaps/…`、`/pdf/standard_fonts/…`、`/pdf/wasm/…`；文件不存在时返回 404 |
+| GET | `http://127.0.0.1:5001/{filename}` | `assets` | 在 `frontend/dist/` 内安全读取静态文件；包括 `/assets/…` 及 `/pdf/cmaps/…`、`/pdf/standard_fonts/…`、`/pdf/wasm/…`；`.mjs` 模块显式返回 `text/javascript`，文件不存在时返回 404 |
 
-Flask 会为 GET 路由提供标准 HEAD 行为，并默认提供 OPTIONS 响应。开发环境页面和 PDF 辅助资源由 Vite 提供，配置位置为 [vite.config.ts](../frontend/vite.config.ts)。
+Flask 会为 GET 路由提供标准 HEAD 行为，并默认提供 OPTIONS 响应。后端为 `.mjs` 显式设置 `text/javascript`，不依赖 Windows 与 macOS 不同的本机 MIME 映射；PDF.js worker 可被浏览器按模块脚本加载。开发环境页面和 PDF 辅助资源由 Vite 提供，配置位置为 [vite.config.ts](../frontend/vite.config.ts)。
 
 页面分类及显示状态通过下述属性接口保存；模式／阅读布局／筛选／临时展开由前端管理，没有对应写接口。前端页面对应关系见 [前端页面列表](frontend-pages.md)，验证步骤见 [阶段四开发与验收记录](devlog/step4-reading-modes.md)。

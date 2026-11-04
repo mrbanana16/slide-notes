@@ -133,3 +133,64 @@ PyCharm 运行 `frontend_build` 后刷新 <http://127.0.0.1:5001/>；等效命�
 ### 【启动配置／命令变更及验收待办】
 
 本次验收归档**启动配置／命令未变更**。共享配置仍为 `frontend_ci`（需要安装依赖时）→ `frontend_build` → 停止旧后端后运行 `backend_run`，无自动串联；命令仍为 `npm --prefix frontend ci`（需要时）、`npm --prefix frontend run build`、`backend/.venv/bin/python backend/run.py`，访问 <http://127.0.0.1:5001/>。前端构建不启动服务，后端启动自动迁移至 `0006`；本轮归档不启动或重启用户服务。阶段四升级与快捷键更新的重新构建／重启要求见前述记录。
+
+
+## *fix Windows 下 PDF.js worker 的模块 MIME 类型
+
+日期：2026-11-04。所属阶段：阶段四。状态：**2026-11-04 用户明确反馈测试通过并授权签名提交、推送，本轮修复人工验收通过。**
+
+### 问题与 AI 开发过程
+
+Windows 按 `npm ci` → `npm run build` → 后端启动的实际流程导入 PDF 后，页面提示 `Setting up fake worker failed`，控制台说明浏览器请求 `/assets/pdf.worker.min-CIqJB0yW.mjs` 时收到 `text/plain`，模块脚本被严格 MIME 检查拒绝。该构建产物及前端 worker 地址与 macOS 正常运行版本一致。
+
+本机复核发现 Python 3.11 的 `mimetypes.guess_type()` 将同一个 `.mjs` 文件解析为 `text/plain`，而 `.js` 为 `application/javascript`、`.wasm` 为 `application/wasm`。原因是 Windows 与 macOS 的本机 MIME 映射不同。旧后端通过 Flask `send_from_directory` 自动推测类型，因此构建本身没有错误，平台差异发生在静态文件响应阶段。
+
+### 主要实现与决策
+
+- 修改 `backend/slide_notes/__init__.py` 的静态资源 `assets` 路由：扩展名不区分大小写，`.mjs` 显式使用 `text/javascript`；其他静态资源继续由 Flask 按原逻辑识别。
+- 修改 `backend/tests/test_workflow.py`，新增路由级 MIME 回归测试，验证大写 `.MJS` 同样返回 `text/javascript`。
+- 不修改 PDF.js 版本、worker 导入方式、Vite 构建配置或依赖锁文件；问题修复不依赖操作系统注册表设置，macOS 与 Windows 共用同一实现。
+- 未修改用户已有代码注释，未操作用户数据库或当前 `5001` 后端进程。
+
+### 自动化验证
+
+项目根目录执行：
+
+```powershell
+npm --prefix frontend ci
+npm --prefix frontend run build
+backend\.venv\Scripts\python.exe -m pytest -q -c backend\pytest.ini backend\tests
+npm --prefix frontend test
+```
+
+- `npm ci`：安装 261 个包，审计 262 个包，0 个漏洞。
+- `npm run build`：TypeScript 检查与 Vite 生产构建通过，worker 产物为 `assets/pdf.worker.min-CIqJB0yW.mjs`；保留原有大于 500 kB 的 bundle 提示。
+- 后端：**77 项通过**，包含新增 `.mjs` MIME 路由测试。
+- 前端：**9 个测试文件、67 项通过**。
+- 真实 HTTP 核对：新代码在临时 `127.0.0.1:5002` 返回 worker 文件 `200`、`text/javascript; charset=utf-8`、1,271,915 字节；核对时旧 `5001` 进程仍返回 `text/plain; charset=utf-8`。未连接浏览器自动化，PDF 实际渲染待人工确认。
+
+### 验证运行方式
+
+PyCharm 中先停止当前 `backend_run`，再重新运行同一配置；本轮后端代码变更必须重启，单独重新构建前端不会更新已运行的后端。等效 Windows 命令为：
+
+```powershell
+backend\.venv\Scripts\python.exe backend\run.py
+```
+
+启动后打开 <http://127.0.0.1:5001/>，刷新页面并重新打开或导入课件。
+
+### 【启动配置／命令变更及验收待办】
+
+**启动配置／命令未变更**。`.run/backend_run.run.xml` 仍运行 `backend/run.py`，`.run/frontend_ci.run.xml` 与 `.run/frontend_build.run.xml` 仍分别执行 `ci` 与 `build`；端口、参数、环境变量、数据目录和前置任务均未变化。没有新增依赖，`package.json`、`package-lock.json` 与 `.run/` 均未改动。
+
+本轮修改后端静态资源响应，必须停用旧 `backend_run`／旧终端进程后重启；无需重新执行 `npm ci`，如前端构建产物仍存在也无需仅为本次修复重新构建。启动后确认 `5001` 响应已来自新后端。
+
+- [x] 停止旧后端并重新运行 `backend_run`，刷新 <http://127.0.0.1:5001/>；确认不再使用旧进程。
+
+### 【人工验收】
+
+- [x] 打开或导入一份 PDF，等待课件加载；页面不再出现 `Setting up fake worker failed`，控制台不再出现模块脚本 MIME 为 `text/plain` 的错误。
+- [x] PDF 页面和文字选择层正常显示，连续阅读、单页阅读及缩放至少各抽查一次；后端不能仍由修复前的进程提供页面。
+- [x] 刷新页面并重启后端后再次打开课件，确认功能持续正常，已有课件、页面和笔记不受影响。
+
+用户明确反馈“测试通过，进行github push”，确认本轮 Windows MIME 修复通过人工验收，并授权使用替换后的本机 GPG 密钥完成签名提交与推送。
