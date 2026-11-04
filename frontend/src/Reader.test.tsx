@@ -1,0 +1,223 @@
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { afterEach, expect, it, vi } from 'vitest'
+import App from './App'
+
+vi.mock('pdfjs-dist', () => ({ GlobalWorkerOptions: {}, getDocument: () => ({ promise: Promise.resolve({}), destroy: () => Promise.resolve() }) }))
+vi.mock('./PdfPage', () => ({ PdfPage: ({ number }: { number: number }) => <div>PDF 第 {number} 页</div> }))
+afterEach(() => { cleanup(); localStorage.clear(); vi.unstubAllGlobals(); vi.restoreAllMocks() })
+
+function fixture(displays = ['normal', 'normal', 'normal']) {
+  let pages = displays.map((display, i) => ({ id: `p${i + 1}`, number: i + 1, note: '', version: 0, summary: '', summary_version: 0, qa: [], category: '正文', display, settings_version: 0 }))
+  const material = { id: 'a', filename: '课件.pdf', page_count: pages.length, course_id: 'c', chapter_id: null, position: 0 }
+  const fetch = vi.fn(async (url: string, options?: RequestInit) => {
+    if (url === '/api/directory') return new Response(JSON.stringify({ revision: 0, courses: [{ id: 'c', name: '课程', position: 0 }], chapters: [], materials: [material] }))
+    if (options?.method === 'PATCH') {
+      const body = JSON.parse(options.body as string)
+      pages = pages.map(page => body.pages.some((p: { id: string }) => p.id === page.id) ? { ...page, ...(body.category ? { category: body.category } : {}), ...(body.display ? { display: body.display } : {}), settings_version: page.settings_version + 1 } : page)
+      return new Response(JSON.stringify(pages.filter(page => body.pages.some((p: { id: string }) => p.id === page.id))))
+    }
+    if (options?.method === 'PUT') return new Response(JSON.stringify({ ...pages[0], note: JSON.parse(options.body as string).note, version: 1 }))
+    return new Response(JSON.stringify(pages))
+  })
+  vi.stubGlobal('fetch', fetch)
+  return fetch
+}
+async function open() {
+  render(<App />)
+  fireEvent.click(await screen.findByText('课件.pdf'))
+  await screen.findByText('PDF 第 1 页')
+}
+it('preserves unsaved drafts across all modes and provides strictly read-only review', async () => {
+  const fetch = fixture()
+  await open()
+  fireEvent.change(screen.getAllByLabelText('个人笔记')[0], { target: { value: '草稿 **第一页**' } })
+  fireEvent.click(screen.getByRole('button', { name: '复习' }))
+  expect(screen.getByText('只读复习')).toBeTruthy()
+  expect(screen.getByText('第一页')).toBeTruthy()
+  expect(document.querySelectorAll('textarea')).toHaveLength(0)
+  expect(screen.queryByText('删除问答')).toBeNull()
+  expect(screen.queryByText('＋ 添加问答')).toBeNull()
+  expect(screen.queryByLabelText('第 1 页分类')).toBeNull()
+  expect(screen.queryByLabelText('课件.pdf的操作')).toBeNull()
+  expect((screen.getByLabelText('创建课程') as HTMLButtonElement).disabled).toBe(true)
+  expect((screen.getByText('清空全部数据') as HTMLButtonElement).disabled).toBe(true)
+  fireEvent.click(screen.getByText('单页阅读'))
+  expect(screen.queryByText('PDF 第 2 页')).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: '沉浸整理' }))
+  expect((screen.getByLabelText('个人笔记') as HTMLTextAreaElement).value).toBe('草稿 **第一页**')
+  expect(document.querySelector('.workspace')?.classList.contains('sidebarClosed')).toBe(true)
+  fireEvent.click(screen.getByText('退出沉浸'))
+  expect((screen.getAllByLabelText('个人笔记')[0] as HTMLTextAreaElement).value).toBe('草稿 **第一页**')
+  expect(fetch.mock.calls.filter(call => call[1]?.method === 'PATCH')).toHaveLength(0)
+  expect(localStorage.length).toBeGreaterThan(0)
+})
+it('skips hidden and collapsed pages in single mode, supports recovery and ignores arrows in editors', async () => {
+  fixture(['normal', 'collapsed', 'hidden'])
+  await open()
+  expect(screen.queryByText('PDF 第 2 页')).toBeNull()
+  fireEvent.click(screen.getByText('临时展开'))
+  expect(screen.getByText('PDF 第 2 页')).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: '沉浸整理' }))
+  expect((screen.getByText('下一页') as HTMLButtonElement).disabled).toBe(true)
+  fireEvent.click(screen.getByLabelText('包含折叠页'))
+  fireEvent.keyDown(screen.getByLabelText('个人笔记'), { key: 'ArrowRight' })
+  expect(screen.getByText('PDF 第 1 页')).toBeTruthy()
+  fireEvent.keyDown(window, { key: 'ArrowRight' })
+  expect(screen.getByText('PDF 第 2 页')).toBeTruthy()
+  fireEvent.click(screen.getByLabelText('显示隐藏页'))
+  fireEvent.click(screen.getByText('下一页'))
+  expect(screen.getByText('PDF 第 3 页')).toBeTruthy()
+  fireEvent.change(screen.getByLabelText('分类筛选'), { target: { value: '目录' } })
+  expect(screen.getByText('显示全部页面')).toBeTruthy()
+  fireEvent.click(screen.getByText('显示全部页面'))
+  expect(screen.getByText('PDF 第 3 页')).toBeTruthy()
+})
+it('batches original page ranges and restores hidden pages without losing draft contents', async () => {
+  const fetch = fixture()
+  await open()
+  fireEvent.change(screen.getAllByLabelText('个人笔记')[0], { target: { value: '隐藏后仍保留' } })
+  fireEvent.change(screen.getByLabelText('批量页码'), { target: { value: '1-3' } })
+  fireEvent.change(screen.getByLabelText('批量分类'), { target: { value: '未讲内容' } })
+  fireEvent.change(screen.getByLabelText('批量显示'), { target: { value: 'hidden' } })
+  fireEvent.click(screen.getByText('应用到页码范围'))
+  await screen.findByText('显示全部页面')
+  const body = JSON.parse(fetch.mock.calls.find(call => call[1]?.method === 'PATCH')![1]!.body as string)
+  expect(body).toEqual({ pages: [{ id: 'p1', version: 0 }, { id: 'p2', version: 0 }, { id: 'p3', version: 0 }], category: '未讲内容', display: 'hidden' })
+  fireEvent.click(screen.getByText('显示全部页面'))
+  expect((screen.getAllByLabelText('个人笔记')[0] as HTMLTextAreaElement).value).toBe('隐藏后仍保留')
+  fireEvent.change(screen.getByLabelText('第 1 页显示状态'), { target: { value: 'normal' } })
+  await waitFor(() => expect(fetch.mock.calls.filter(call => call[1]?.method === 'PATCH')).toHaveLength(2))
+})
+it('keeps review layout independent of fullscreen, and offers fallback if fullscreen is denied', async () => {
+  fixture()
+  const request = vi.fn().mockRejectedValue(new Error('denied'))
+  Object.defineProperty(document.documentElement, 'requestFullscreen', { configurable: true, value: request })
+  await open()
+  fireEvent.click(screen.getByRole('button', { name: '复习' }))
+  fireEvent.click(screen.getByText('全屏', { exact: true }))
+  await screen.findByText('浏览器未进入全屏，仍可在当前窗口继续阅读或沉浸整理。')
+  expect(screen.getByText('PDF 第 2 页')).toBeTruthy()
+  fireEvent.click(screen.getByText('单页阅读'))
+  fireEvent.change(screen.getByLabelText('跳转页码'), { target: { value: '2' } })
+  expect(screen.getByText('PDF 第 2 页')).toBeTruthy()
+  Object.defineProperty(document, 'fullscreenElement', { configurable: true, value: document.documentElement })
+  fireEvent(document, new Event('fullscreenchange'))
+  expect(screen.getByText('退出全屏')).toBeTruthy()
+  Object.defineProperty(document, 'fullscreenElement', { configurable: true, value: null })
+  fireEvent(document, new Event('fullscreenchange'))
+  expect(screen.getByText('PDF 第 2 页')).toBeTruthy()
+  expect(screen.getByText('单页阅读').getAttribute('aria-pressed')).toBe('true')
+  expect(document.querySelectorAll('textarea')).toHaveLength(0)
+})
+
+it('restores the original page and offset when switching continuous and single layouts', async () => {
+  fixture()
+  await open()
+  const reader = document.querySelector<HTMLElement>('.reader')!
+  vi.spyOn(reader, 'getBoundingClientRect').mockImplementation(() => ({ top: 0, bottom: 800 }) as DOMRect)
+  const rows = Array.from(document.querySelectorAll<HTMLElement>('.pageRow'))
+  rows.forEach((row, index) => vi.spyOn(row, 'getBoundingClientRect').mockImplementation(() => ({ top: index * 1000 - reader.scrollTop, bottom: index * 1000 + 900 - reader.scrollTop }) as DOMRect))
+  reader.scrollTop = 1100
+  fireEvent.scroll(reader)
+  fireEvent.click(screen.getByRole('button', { name: '复习' }))
+  expect(reader.scrollTop).toBe(1100)
+  fireEvent.click(screen.getByText('单页阅读'))
+  expect(screen.getByText('PDF 第 2 页')).toBeTruthy()
+  expect(screen.queryByText('PDF 第 1 页')).toBeNull()
+  expect(reader.scrollTop).toBe(0)
+  fireEvent.click(screen.getByText('连续阅读'))
+  expect(reader.scrollTop).toBe(1100)
+  expect(screen.getByText('PDF 第 1 页')).toBeTruthy()
+})
+
+it('keeps attribute controls unchanged on failure and retries without replacing note drafts', async () => {
+  const fetch = fixture()
+  await open()
+  fireEvent.change(screen.getAllByLabelText('个人笔记')[0], { target: { value: '失败仍保留' } })
+  fetch.mockImplementationOnce(async () => new Response(JSON.stringify({ error: '属性保存失败' }), { status: 500 }))
+  fireEvent.change(screen.getByLabelText('第 1 页分类'), { target: { value: '封面' } })
+  await screen.findByText('属性保存失败')
+  expect((screen.getByLabelText('第 1 页分类') as HTMLSelectElement).value).toBe('正文')
+  expect((screen.getAllByLabelText('个人笔记')[0] as HTMLTextAreaElement).value).toBe('失败仍保留')
+  fireEvent.change(screen.getByLabelText('第 1 页分类'), { target: { value: '封面' } })
+  await waitFor(() => expect((screen.getByLabelText('第 1 页分类') as HTMLSelectElement).value).toBe('封面'))
+})
+
+it('refreshes conflicting attributes only and retains note drafts for an explicit retry', async () => {
+  const fetch = fixture()
+  await open()
+  fireEvent.change(screen.getAllByLabelText('个人笔记')[0], { target: { value: '本地笔记' } })
+  fetch.mockImplementationOnce(async () => new Response(JSON.stringify({ error: '属性冲突' }), { status: 409 }))
+  fetch.mockImplementationOnce(async () => new Response(JSON.stringify([{ id: 'p1', number: 1, category: '其他', display: 'normal', settings_version: 7, note: '服务器旧笔记' }])))
+  fireEvent.change(screen.getByLabelText('第 1 页分类'), { target: { value: '封面' } })
+  await waitFor(() => expect((screen.getByLabelText('第 1 页分类') as HTMLSelectElement).value).toBe('其他'))
+  expect((screen.getAllByLabelText('个人笔记')[0] as HTMLTextAreaElement).value).toBe('本地笔记')
+  fireEvent.change(screen.getByLabelText('第 1 页分类'), { target: { value: '封面' } })
+  await waitFor(() => expect(fetch.mock.calls.filter(call => call[1]?.method === 'PATCH')).toHaveLength(2))
+  const calls = fetch.mock.calls.filter(call => call[1]?.method === 'PATCH')
+  expect(JSON.parse(calls[1][1]!.body as string).pages).toEqual([{ id: 'p1', version: 7 }])
+})
+
+it('turns pages with all four arrows after a single-mode button receives focus', async () => {
+  fixture()
+  await open()
+  fireEvent.click(screen.getByRole('button', { name: '复习' }))
+  const singleButton = screen.getByText('单页阅读')
+  fireEvent.click(singleButton)
+  singleButton.focus()
+  for (const [key, number] of [['ArrowRight', 2], ['ArrowDown', 3], ['ArrowLeft', 2], ['ArrowUp', 1]] as const) {
+    const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })
+    fireEvent(singleButton, event)
+    expect(screen.getByText(`PDF 第 ${number} 页`)).toBeTruthy()
+    expect(event.defaultPrevented).toBe(true)
+  }
+  fireEvent.keyDown(singleButton, { key: 'ArrowUp' })
+  expect(screen.getByText('PDF 第 1 页')).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: '沉浸整理' }))
+  const nextButton = screen.getByText('下一页')
+  nextButton.focus()
+  fireEvent.keyDown(nextButton, { key: 'ArrowDown' })
+  expect(screen.getByText('PDF 第 2 页')).toBeTruthy()
+})
+
+it('leaves arrows to text inputs, editable content, selectors, composition and modifier keys', async () => {
+  fixture()
+  await open()
+  fireEvent.click(screen.getByRole('button', { name: '沉浸整理' }))
+  const editable = document.createElement('div')
+  editable.contentEditable = 'true'
+  editable.setAttribute('contenteditable', 'true')
+  editable.setAttribute('tabindex', '0')
+  document.body.append(editable)
+  try {
+    for (const element of [screen.getByLabelText('AI 总结'), screen.getByLabelText('个人笔记'), screen.getByLabelText('批量页码'), screen.getByLabelText('跳转页码'), screen.getByLabelText('分类筛选'), editable]) {
+      element.focus()
+      for (const key of ['ArrowLeft', 'ArrowUp', 'ArrowRight', 'ArrowDown']) {
+        const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })
+        fireEvent(element, event)
+        expect(screen.getByText('PDF 第 1 页')).toBeTruthy()
+        expect(event.defaultPrevented).toBe(false)
+      }
+      fireEvent.keyDown(window, { key: 'ArrowDown' })
+      expect(screen.getByText('PDF 第 1 页')).toBeTruthy()
+      element.blur()
+    }
+    for (const options of [{ isComposing: true }, { keyCode: 229 }, { shiftKey: true }, { ctrlKey: true }, { metaKey: true }, { altKey: true }]) {
+      fireEvent.keyDown(document.body, { key: 'ArrowRight', ...options })
+      expect(screen.getByText('PDF 第 1 页')).toBeTruthy()
+    }
+  } finally { editable.remove() }
+  fireEvent.keyDown(document.body, { key: 'ArrowRight' })
+  expect(screen.getByText('PDF 第 2 页')).toBeTruthy()
+})
+
+it('does not use arrow page shortcuts in continuous organize or review layouts', async () => {
+  fixture()
+  await open()
+  fireEvent.keyDown(document.body, { key: 'ArrowDown' })
+  expect((screen.getByLabelText('跳转页码') as HTMLInputElement).value).toBe('1')
+  fireEvent.click(screen.getByRole('button', { name: '复习' }))
+  fireEvent.keyDown(document.body, { key: 'ArrowRight' })
+  expect((screen.getByLabelText('跳转页码') as HTMLInputElement).value).toBe('1')
+  expect(screen.getByText('PDF 第 2 页')).toBeTruthy()
+})

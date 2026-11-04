@@ -1,6 +1,7 @@
 export type Material = { id: string; filename: string; page_count: number; course_id: string; chapter_id: string | null; position: number }
 export type QA = { id: string; question: string; answer: string; position: number; version: number; deleted: boolean }
-export type Page = { id: string; number: number; note: string; version: number; summary: string; summary_version: number; qa: QA[] }
+export type PageSettings = { id: string; number: number; category: string; display: 'normal' | 'collapsed' | 'hidden'; settings_version: number }
+export type Page = { category?: string; display?: PageSettings['display']; settings_version?: number; id: string; number: number; note: string; version: number; summary: string; summary_version: number; qa: QA[] }
 
 export class ApiError extends Error {
   constructor(message: string, public status: number, public current?: Page | QA) { super(message) }

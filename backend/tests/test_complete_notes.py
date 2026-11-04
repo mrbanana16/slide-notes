@@ -105,6 +105,6 @@ def test_upgrade_preserves_step1_notes(tmp_path):
     app = create_app(data)
     try:
         page = app.test_client().get('/api/materials/m/pages').get_json()[0]
-        assert page == {'id': 'p', 'number': 1, 'note': '原笔记', 'version': 7, 'summary': '', 'summary_version': 0, 'qa': []}
+        assert page == {'category': '正文', 'display': 'normal', 'settings_version': 0, 'id': 'p', 'number': 1, 'note': '原笔记', 'version': 7, 'summary': '', 'summary_version': 0, 'qa': []}
     finally:
         app.extensions['engine'].dispose()

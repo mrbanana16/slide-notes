@@ -1,6 +1,6 @@
 # 后端接口列表
 
-最后更新：2026-11-04（阶段三，用户确认验收通过）。本文件描述当前实现，每次阶段或迭代开发完成后更新。
+最后更新：2026-11-04（阶段四，用户确认验收通过）。本文件描述当前实现，每次阶段或迭代开发完成后更新。
 
 ## 请求约定与实现位置
 
@@ -78,7 +78,7 @@
 
 ## IDE 启动入口
 
-PyCharm 共享配置为 [.run/backend_run.run.xml](../.run/backend_run.run.xml)，使用项目虚拟环境运行 `backend/run.py`，提供上述 `127.0.0.1:5001` 服务。依赖变化时先运行 `frontend_ci`，再运行 `frontend_build` 构建页面，最后运行 `backend_run`；三份配置没有自动串联。IDE 设置及其下方保留的命令方式见 [README 本地运行](../README.md#本地运行)。现有配置已由工作区改为上述名称，本轮未修改配置；命令及端口未变更。升级本轮代码时需要重新构建前端并停止旧后端后重启，启动自动执行尚未应用的迁移（当前 `0005`）；前端新增 dnd-kit 依赖，先运行 `npm --prefix frontend ci` 安装锁定版本。
+PyCharm 共享配置为 [.run/backend_run.run.xml](../.run/backend_run.run.xml)，使用项目虚拟环境运行 `backend/run.py`，提供上述 `127.0.0.1:5001` 服务。依赖变化时先运行 `frontend_ci`，再运行 `frontend_build` 构建页面，最后运行 `backend_run`；三份配置没有自动串联。IDE 设置及其下方保留的命令方式见 [README 本地运行](../README.md#本地运行)。现有配置已由工作区改为上述名称，本轮未修改配置；命令及端口未变更。升级本轮代码时需要重新构建前端并停止旧后端后重启，启动自动执行尚未应用的迁移（当前 `0006`，为旧页新增正文／正常属性及独立版本）；本轮无新增依赖，已安装阶段三依赖时无需重新安装。
 
 ## 控制台诊断日志
 
@@ -93,6 +93,7 @@ PyCharm 共享配置为 [.run/backend_run.run.xml](../.run/backend_run.run.xml)�
 | GET | [http://127.0.0.1:5001/api/materials](http://127.0.0.1:5001/api/materials) | `list_materials` | 查询所有课件，按课程 ID、章节 ID、位置、ID 返回扁平列表；界面目录以 `/api/directory` 为准 | [App.tsx](../frontend/src/App.tsx) （兼容查询；当前界面使用 `/api/directory`） |
 | POST | [http://127.0.0.1:5001/api/materials](http://127.0.0.1:5001/api/materials) | `upload` | 按内容识别重复文件；重复时返回已有课件，否则校验并创建课件及每页笔记记录 | [App.tsx](../frontend/src/App.tsx) 的 `upload` |
 | GET | `http://127.0.0.1:5001/api/materials/{material_id}/pages` | `pages` | 按原始页码查询页面、总结、个人笔记与未删除问答 | [App.tsx](../frontend/src/App.tsx) 的课件加载 effect |
+| PATCH | `http://127.0.0.1:5001/api/materials/{material_id}/page-settings` | `page_settings.py` 的 `save_page_settings` | 单页／批量分类及显示状态，独立版本校验，整批事务保存 | `Reader.tsx` 的 `saveSettings` |
 | GET | `http://127.0.0.1:5001/api/materials/{material_id}/file` | `file` | 读取课件原始 PDF，供 PDF.js 展示 | [App.tsx](../frontend/src/App.tsx) 的 `getDocument` |
 | POST | [http://127.0.0.1:5001/api/reset](http://127.0.0.1:5001/api/reset) | `reset_all_data` | 确认后清空全部课件、笔记和上传文件并重建空数据库 | [App.tsx](../frontend/src/App.tsx) 的 `resetAllData` |
 | PUT | `http://127.0.0.1:5001/api/pages/{page_id}/note` | `save_note` | 按版本号保存个人笔记，防止旧版本覆盖 | [NoteEditor.tsx](../frontend/src/NoteEditor.tsx) 的保存状态组件及 `drafts.ts` 的 `save` |
@@ -146,11 +147,31 @@ PyCharm 共享配置为 [.run/backend_run.run.xml](../.run/backend_run.run.xml)�
 
 ```json
 [
-  {"id": "<page_id>", "number": 1, "note": "", "version": 0, "summary": "", "summary_version": 0, "qa": []}
+  {"id": "<page_id>", "number": 1, "category": "正文", "display": "normal", "settings_version": 0, "note": "", "version": 0, "summary": "", "summary_version": 0, "qa": []}
 ]
 ```
 
 `note` 为个人笔记原文；`version` 用于个人笔记保存，`summary_version` 独立用于总结保存。`qa` 为按 `position`、ID 排序的未删除问答数组，条目字段见下方问答接口。课件不存在时返回 404。
+
+### PATCH /api/materials/{material_id}/page-settings
+
+代码：[page_settings.py](../backend/slide_notes/page_settings.py) 的 `register_page_settings`／`save_page_settings`。路径参数为课件 ID。
+
+```json
+{"pages": [{"id": "<page_id>", "version": 0}], "category": "未讲内容", "display": "collapsed"}
+```
+
+`pages` 为非空、不重复的页面 ID 与版本列表，所有页须属于路径课件；`version` 为页面 `settings_version`，须为非负整数（不接受布尔值）。请求仅允许 `pages`、`category`、`display`，后两者至少提供一个。分类枚举：正文、封面、目录、未讲内容、拓展知识、其他；显示枚举：`normal`、`collapsed`、`hidden`。省略某属性则保持原值；null／未知值无效。修改分类不隐式修改显示状态。
+
+成功 200：按原始页码顺序返回本次修改页面的属性数组，每页 `settings_version` 加 1，即使值未改变亦递增。
+
+```json
+[{"id": "<page_id>", "number": 1, "category": "未讲内容", "display": "collapsed", "settings_version": 1}]
+```
+
+400：字段、枚举、版本、空列表或重复页非法；404：课件不存在或任一页不存在／不属于该课件；409：任一版本过期，整批回滚并返回 `error` 和 `current`（该课件全部页面的最新属性数组）；500：服务异常。版本更新使用数据库条件匹配，发生冲突时已更新的页也回滚。前端冲突后 GET 页面列表，仅合并属性，核对后显式重试；普通保存失败保留原属性，可重新选择重试。
+
+属性版本独立于目录版本、个人笔记、总结、问答版本；不改变 PDF 原文件、页码、页面 ID 或内容对象。折叠／隐藏只是属性，不删除页面。GET 页面列表及笔记／总结成功或冲突中的完整页面对象均带 `category`、`display`、`settings_version`。旧数据库经迁移 `0006` 得到正文／正常／版本 0。
 
 ### GET /api/materials/{material_id}/file
 
@@ -179,7 +200,7 @@ PyCharm 共享配置为 [.run/backend_run.run.xml](../.run/backend_run.run.xml)�
 ```json
 {
   "error": "另一窗口已修改此页。你的内容仍保留，请复制备份后重新加载。",
-  "current": {"id": "<page_id>", "number": 1, "note": "服务器已有笔记", "version": 1, "summary": "", "summary_version": 0, "qa": []}
+  "current": {"id": "<page_id>", "number": 1, "category": "正文", "display": "normal", "settings_version": 0, "note": "服务器已有笔记", "version": 1, "summary": "", "summary_version": 0, "qa": []}
 }
 ```
 
@@ -246,4 +267,4 @@ PyCharm 共享配置为 [.run/backend_run.run.xml](../.run/backend_run.run.xml)�
 
 Flask 会为 GET 路由提供标准 HEAD 行为，并默认提供 OPTIONS 响应。开发环境页面和 PDF 辅助资源由 Vite 提供，配置位置为 [vite.config.ts](../frontend/vite.config.ts)。
 
-页面分类、隐藏及模式相关接口尚未实现。前端页面对应关系见 [前端页面列表](frontend-pages.md)，验证步骤见 [阶段三开发与验收记录](devlog/step3-course-structure.md)。
+页面分类及显示状态通过下述属性接口保存；模式／阅读布局／筛选／临时展开由前端管理，没有对应写接口。前端页面对应关系见 [前端页面列表](frontend-pages.md)，验证步骤见 [阶段四开发与验收记录](devlog/step4-reading-modes.md)。

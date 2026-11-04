@@ -2,9 +2,9 @@ import { useEffect, useRef, useState } from 'react'
 import { getDocument, GlobalWorkerOptions, type PDFDocumentProxy } from 'pdfjs-dist'
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import { api, type Material, type Page, type Directory as DirectoryData } from './api'
-import { NoteEditor } from './NoteEditor'
+import { Reader } from './Reader'
+import type { Mode } from './reading'
 import { DraftStore } from './drafts'
-import { PdfPage } from './PdfPage'
 import { Directory } from './Directory'
 import { ImportDialog } from './ImportDialog'
 import { materialPath } from './directoryOrder'
@@ -34,6 +34,8 @@ export default function App() {
   const [uploading, setUploading] = useState(false)
   const [documentLoading, setDocumentLoading] = useState(false)
   const [sidebar, setSidebar] = useState(true)
+  const [mode, setMode] = useState<Mode>('organize')
+  const readOnly = mode === 'review'
   const [dragging, setDragging] = useState(false)
   const [notice, setNotice] = useState('')
   const [resetting, setResetting] = useState(false)
@@ -86,7 +88,7 @@ export default function App() {
     setSelected(old => old ? next.materials.find(m => m.id === old.id) ?? null : null)
   }
   async function mutateDirectory(url: string, method: string, body: object): Promise<boolean> {
-    if (operation.current) return false
+    if (operation.current || readOnly) return false
     operation.current = true
     setDirectoryBusy(true); setError(''); setNotice('')
     try {
@@ -104,7 +106,7 @@ export default function App() {
     } finally { operation.current = false; setDirectoryBusy(false) }
   }
   function prepareImport(file?: File) {
-    if (operation.current) return
+    if (operation.current || readOnly) return
     setError(''); setNotice('')
     setDuplicate(null)
     setImportFile(file ?? null)
@@ -113,7 +115,7 @@ export default function App() {
     setImportOpen(true)
   }
   async function deleteMaterial(material: Material) {
-    if (operation.current) return
+    if (operation.current || readOnly) return
     operation.current = true; setDirectoryBusy(true); setError('')
     let paused = false
     try {
@@ -136,7 +138,7 @@ export default function App() {
     setSelected(material); setImportOpen(false); setImportFile(null); setDuplicate(null)
   }
   async function upload(file?: File) {
-    if (!file || operation.current) return
+    if (!file || operation.current || readOnly) return
     if (!file.name.toLowerCase().endsWith('.pdf')) { setError('请选择 PDF 文件。'); return }
     if (file.size > 100 * 1024 * 1024) { setError('文件超过 100 MB 限制。'); return }
     operation.current = true
@@ -165,7 +167,7 @@ export default function App() {
   }
 
   async function resetAllData() {
-    if (operation.current) return
+    if (operation.current || readOnly) return
     if (!window.confirm('清空全部数据？所有课件、原始 PDF、已保存笔记和当前未保存内容都将永久删除，无法撤销。系统“未分类”保留为空分类。')) return
     operation.current = true
     store.pause(true)
@@ -192,14 +194,14 @@ export default function App() {
     } finally { operation.current = false; store.pause(false); setResetting(false) }
   }
 
-  return <div className={`workspace ${sidebar ? '' : 'sidebarClosed'}`}>
+  return <div className={`workspace ${sidebar && mode !== 'immerse' ? '' : 'sidebarClosed'}`}>
     <aside className="sidebar" aria-label="课件目录">
       <div className="brand"><span className="brandMark" aria-hidden="true">页</span><div><strong>slide-notes</strong><small>把理解留在每一页</small></div></div>
-      <Directory data={directory} selected={selected?.id} busy={loading || uploading || resetting || directoryBusy} onSelect={setSelected} mutate={mutateDirectory} onDelete={deleteMaterial} />
-      <div className="sidebarBottom"><button className="primary" disabled={uploading || resetting || directoryBusy || loading} onClick={() => prepareImport()}>{uploading ? '正在导入…' : '＋ 导入 PDF'}</button><p>课件与笔记保存在本机</p><button className="dangerButton" disabled={uploading || resetting || directoryBusy || loading} onClick={() => void resetAllData()}>{resetting ? '正在清空…' : '清空全部数据'}</button></div>
+      <Directory readOnly={readOnly} data={directory} selected={selected?.id} busy={loading || uploading || resetting || directoryBusy} onSelect={setSelected} mutate={mutateDirectory} onDelete={deleteMaterial} />
+      <div className="sidebarBottom"><button className="primary" disabled={readOnly || uploading || resetting || directoryBusy || loading} onClick={() => prepareImport()}>{uploading ? '正在导入…' : '＋ 导入 PDF'}</button><p>课件与笔记保存在本机</p><button className="dangerButton" disabled={readOnly || uploading || resetting || directoryBusy || loading} onClick={() => void resetAllData()}>{resetting ? '正在清空…' : '清空全部数据'}</button></div>
     </aside>
-    <header className="toolbar"><button className="sidebarToggle" aria-label={sidebar ? '收起目录' : '展开目录'} onClick={() => setSidebar(value => !value)}>☰</button><div className="breadcrumb">{selected ? <><span>{directory.courses.find(c => c.id === selected.course_id)?.name}{selected.chapter_id ? ` / ${directory.chapters.find(c => c.id === selected.chapter_id)?.name}` : ''} /</span> <strong>{selected.filename}</strong></> : <strong>学习工作台</strong>}</div><span className="mode">整理</span><span className="globalStatus" role="status">{dirtyCount ? `${dirtyCount} 页未保存` : '所有笔记已保存'}</span></header>
-    <main ref={reader} className="reader" onDragOver={event => { event.preventDefault(); setDragging(true) }} onDragLeave={event => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setDragging(false) }} onDrop={event => { event.preventDefault(); setDragging(false); prepareImport(event.dataTransfer.files[0]) }}>
+    <header className="toolbar"><button disabled={mode === 'immerse'} className="sidebarToggle" aria-label={sidebar ? '收起目录' : '展开目录'} onClick={() => setSidebar(value => !value)}>☰</button><div className="breadcrumb">{selected ? <><span>{directory.courses.find(c => c.id === selected.course_id)?.name}{selected.chapter_id ? ` / ${directory.chapters.find(c => c.id === selected.chapter_id)?.name}` : ''} /</span> <strong>{selected.filename}</strong></> : <strong>学习工作台</strong>}</div><div className="modeSwitcher" aria-label="工作模式">{([['organize', '整理'], ['review', '复习'], ['immerse', '沉浸整理']] as const).map(([value, label]) => <button key={value} aria-pressed={mode === value} disabled={uploading || resetting || directoryBusy || importOpen} onClick={() => setMode(value)}>{label}</button>)}</div><span className="globalStatus" role="status">{dirtyCount ? `${dirtyCount} 页未保存` : '所有笔记已保存'}</span></header>
+    <main ref={reader} className="reader" onDragOver={event => { event.preventDefault(); if (!readOnly) setDragging(true) }} onDragLeave={event => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setDragging(false) }} onDrop={event => { event.preventDefault(); setDragging(false); if (!readOnly) prepareImport(event.dataTransfer.files[0]) }}>
       {resetting && <p role="status" className="loading">正在清空全部数据…</p>}
       {store.storageError && <p role="alert" className="errorBanner">{store.storageError}</p>}
       {notice && <div className="noticeBanner" role="status">{notice}</div>}
@@ -207,8 +209,8 @@ export default function App() {
       {error && <div className="errorBanner" role="alert">{error} <button onClick={() => void loadMaterials().then(() => { if (selected) setDocumentRetry(value => value + 1) })}>重新加载</button></div>}
       {directoryBusy && <p role="status">正在保存目录…</p>}
       {loading && <p className="loading" role="status">正在读取课件目录…</p>}
-      {!selected && !loading && <div className="emptyState"><div className="emptyPage" aria-hidden="true"><span /><span /><span /></div><h1>从一份课件开始</h1><p>课件在左，理解在右。<br />逐页阅读，把重点写成自己的笔记。</p><button className="primary" disabled={uploading || resetting || directoryBusy || loading} onClick={() => prepareImport()}>{uploading ? '正在校验并导入…' : '导入 PDF 课件'}</button><small>也可将 PDF 拖到这里 · 最大 100 MB</small>{materials.length > 0 && <p>或从左侧目录打开已有课件。</p>}</div>}
-      {selected && !resetting && <><div className="documentHeading"><div><h1>{selected.filename.replace(/\.pdf$/i, '')}</h1><p>{selected.page_count} 页 · 逐页整理</p></div><span>停止输入约 800ms 自动保存<br />也可使用 ⌘ / Ctrl + S</span></div>{documentLoading && <p className="loading" role="status">正在加载课件…</p>}{pdf && pages.map(page => <article className="pageRow" key={page.id}><div className="pageLabel"><strong>第 {page.number} 页</strong><span>共 {selected.page_count} 页</span></div><div className="pageColumns"><PdfPage pdf={pdf} number={page.number} /><NoteEditor page={page} store={store} /></div></article>)}</>}
+      {!selected && !loading && <div className="emptyState"><div className="emptyPage" aria-hidden="true"><span /><span /><span /></div><h1>从一份课件开始</h1><p>课件在左，理解在右。<br />逐页阅读，把重点写成自己的笔记。</p><button className="primary" disabled={readOnly || uploading || resetting || directoryBusy || loading} onClick={() => prepareImport()}>{uploading ? '正在校验并导入…' : '导入 PDF 课件'}</button><small>也可将 PDF 拖到这里 · 最大 100 MB</small>{materials.length > 0 && <p>或从左侧目录打开已有课件。</p>}</div>}
+      {selected && !resetting && <><div className="documentHeading"><div><h1>{selected.filename.replace(/\.pdf$/i, '')}</h1><p>{selected.page_count} 页 · {mode === 'review' ? '只读复习' : mode === 'immerse' ? '沉浸整理' : '逐页整理'}</p></div><span>{readOnly ? '只读预览 · 先前编辑继续自动保存' : <>停止输入约 800ms 自动保存<br />也可使用 ⌘ / Ctrl + S</>}</span></div>{documentLoading && <p className="loading" role="status">正在加载课件…</p>}{pdf && <Reader key={selected.id} materialId={selected.id} pages={pages} pdf={pdf} store={store} mode={mode} onMode={setMode} reader={reader} onSettings={settings => setPages(old => old.map(page => { const next = settings.find(item => item.id === page.id); return next ? { ...page, category: next.category, display: next.display, settings_version: next.settings_version } : page }))} />}</>}
     </main>
     {importOpen && <ImportDialog directory={directory} course={importCourse || directory.courses[0]?.id || ''} chapter={importChapter} file={importFile} busy={uploading || directoryBusy || loading} error={error} duplicate={duplicate?.path} onOpenExisting={() => void openExisting()} onCourse={id => { setImportCourse(id); setImportChapter('') }} onChapter={setImportChapter} onFile={file => { setImportFile(file); setDuplicate(null); setError('') }} onReload={() => { void loadMaterials(); setImportCourse(''); setImportChapter('') }} onClose={() => setImportOpen(false)} onSubmit={() => void upload(importFile ?? undefined)} onCreate={name => mutateDirectory('/api/courses', 'POST', { name })} />}
 

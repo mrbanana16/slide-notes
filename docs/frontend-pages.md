@@ -1,6 +1,6 @@
 # 前端页面列表
 
-最后更新：2026-11-04（阶段三，用户确认验收通过）。仅列当前实现；复习／沉浸模式、页面分类与隐藏尚未实现。
+最后更新：2026-11-04（阶段四，用户确认验收通过）。仅列当前实现。
 
 ## 页面与页面内状态
 
@@ -9,7 +9,13 @@
 | 页面／视图 | 进入方式与作用 | 主要操作 | 代码文件 | 关联接口 |
 |---|---|---|---|---|
 | 工作台初始视图 `/` | 首次进入、没有选中课件或清空后 | 固定“未分类”、创建普通课程、导入 PDF、打开目录内课件、收起目录 | `frontend/src/App.tsx` | GET `/api/directory`、POST `/api/courses` |
-| 课件整理视图 `/` | 点击课件或完成导入；连续显示原始页码与该页笔记 | 查看 PDF、逐页编辑、折叠笔记区、预览 Markdown | `App.tsx`、`PdfPage.tsx`、`NoteEditor.tsx` | GET `/api/materials/{id}/pages`、GET `/api/materials/{id}/file` |
+| 课件整理视图 `/` | 点击课件或完成导入；连续显示原始页码与该页笔记 | 查看 PDF、逐页编辑、折叠笔记区、预览 Markdown、分类及显示状态操作 | `App.tsx`、`Reader.tsx`、`PdfPage.tsx`、`NoteEditor.tsx` | GET `/api/materials/{id}/pages`、GET `/api/materials/{id}/file` |
+| 复习连续视图 `/` | 顶部「复习」，首次默认连续；同一路由内状态 | 逐页 PDF 与 Markdown 只读预览、笔记区临时折叠、筛选与独立全屏；禁止笔记、目录、页面属性及导入／删除／清空修改 | `App.tsx`、`Reader.tsx`、`NoteEditor.tsx` 的 `NotePreview` | 共用页面／文件 GET；先前编辑仍由 `drafts.ts` 保存 |
+| 复习单页视图 `/` | 复习工具栏「单页阅读」 | 保留当前页，上一／下一页、原始页码跳转、←／↑ 上一页与 →／↓ 下一页、缩放／适应页面；返回连续时恢复页与页内位置，全屏与布局互不改变 | `Reader.tsx`、`reading.ts`、`PdfPage.tsx` | 共用页面／文件 GET，无新的模式 API |
+| 沉浸整理视图 `/` | 顶部「沉浸整理」，目录隐藏 | 单页编辑、翻页、跳转、缩放、适应页面、属性与批量操作、全屏；退出沉浸回到整理 | `App.tsx`、`Reader.tsx`、`NoteEditor.tsx`、`PdfPage.tsx` | 共用笔记 PUT；PATCH `/api/materials/{id}/page-settings` |
+| 页面分类与显示状态 | 整理／沉浸中页码条的下拉框 | 六类分类独立于正常／折叠／隐藏；连续折叠页可临时展开；失败保持原属性，冲突读取最新属性再由用户重试 | `Reader.tsx` 的 `saveSettings`、`reading.ts` | PATCH `/api/materials/{id}/page-settings`，冲突时 GET `/api/materials/{id}/pages`，仅合并属性不替换笔记 |
+| 批量取舍 | 整理／沉浸的批量工具栏 | 原始页码范围 `1-3,5`，分类／显示状态可保持或修改；覆盖范围内被筛选、隐藏的页面，整批事务保存 | `Reader.tsx`、`reading.ts` 的 `rangePages` | PATCH `/api/materials/{id}/page-settings` |
+| 筛选／没有可见页 | 阅读工具栏，三模式共用 | 分类筛选、显示隐藏页；单页可包含折叠页；显示跳过数量；空结果提供「显示全部页面」，不修改持久属性 | `Reader.tsx`、`reading.ts` 的 `visiblePages` | 无额外写入 |
 | 课程目录 | 左侧课程 → 课程直属课件／章节 → 课件，均为 `/` 内状态 | 创建课程、添加章节、折叠、改名、上移下移、拖动排序、跨章节／课程移动，跨课程需确认；普通空容器删除 | `Directory.tsx`、`directoryOrder.ts`、`directoryDnd.ts`、`App.tsx` | GET `/api/directory`；POST `/api/courses`、`/api/chapters`；PATCH／DELETE `/api/courses/{id}`、`/api/chapters/{id}`；PATCH `/api/materials/{id}`；PUT `/api/directory/order` |
 | 导入归属弹窗 | 导入按钮或将 PDF 拖入工作区，原生 modal dialog | 选择课程和可选章节、创建课程、选择文件、取消／确认；错误时可重新加载目录 | `ImportDialog.tsx`、`App.tsx` | POST `/api/courses`；POST `/api/materials`；GET `/api/directory` |
 | 跨课程转移确认 | 课件拖到另一课程的标题／章节／课件／空区域，或菜单选择另一课程目标 | 展示源位置与目标位置；取消不请求，确认后更新归属，保留页 ID 和笔记；目标折叠时自动展开 | `TransferDialog.tsx`、`Directory.tsx`、`directoryOrder.ts` | PUT `/api/directory/order`，包含 `transfers` 确认列表 |
@@ -52,7 +58,7 @@
 
 ## 构建与启动
 
-PyCharm：按 README 安装更新后的依赖，停止旧 `run backend`／`backend_run` → 运行 `frontend_ci` → `frontend_build` → `backend_run` → 刷新 <http://127.0.0.1:5001/>。工作区现有 IDE 配置名为 `frontend_ci`、`frontend_build`、`backend_run`，分别执行安装、构建、服务启动，无自动串联；脚本路径、解释器要求和端口未变，后端启动自动迁移到 `0005`，旧“未分类课程”内容归入固定“未分类”。
+PyCharm：按 README 安装更新后的依赖，停止旧 `run backend`／`backend_run` → 运行 `frontend_ci` → `frontend_build` → `backend_run` → 刷新 <http://127.0.0.1:5001/>。工作区现有 IDE 配置名为 `frontend_ci`、`frontend_build`、`backend_run`，分别执行安装、构建、服务启动，无自动串联；脚本路径、解释器要求和端口未变，后端启动自动迁移到 `0006`，旧页面新增正文／正常的属性默认值，原 ID 与笔记保持。依赖已安装则无需重新运行 `frontend_ci`；本轮须重新构建前端、停止旧后端后重启。
 
 命令方式（项目根目录）：
 
@@ -62,4 +68,12 @@ npm --prefix frontend run build
 backend/.venv/bin/python backend/run.py
 ```
 
-接口详情见 [后端接口列表](backend-apis.md)，具体人工步骤见 [阶段三记录](devlog/step3-course-structure.md)。
+接口详情见 [后端接口列表](backend-apis.md)，具体人工步骤见 [阶段四记录](devlog/step4-reading-modes.md)。
+
+## 阅读位置与只读边界
+
+模式、复习布局、筛选、临时展开及缩放属于当前课件阅读会话的前端状态，无独立路由或后端模式开关。切换模式保留稳定页面 ID 对应的草稿，连续布局记录可见原始页码与页内偏移；单页默认跳过折叠和隐藏，当前页不再符合条件时取后续第一符合页，否则最后符合页。首次打开课件不强制滚动到第一篇正文。
+
+复习预览读取工作台草稿，先前编辑仍可完成自动保存；没有 textarea、添加／删除问答和页面属性写入入口。目录可选课件并临时折叠，拖动和变更菜单禁用／移除，导入与清空禁用。保存冲突需切回整理处理。全屏失败显示可继续使用窗口布局的提示；Esc 只改变浏览器全屏状态。
+
+单页复习与沉浸整理共用四向方向键快捷键，工具栏显示说明。普通按钮聚焦（例如点击单页阅读后）仍可使用；文本框、选择框、可编辑内容、弹窗和文本输入类 ARIA 控件聚焦时保留自身键盘行为。输入法组词、修饰键组合及已被其他控件处理的事件不触发翻页。连续模式不注册此翻页处理，翻页仍使用筛选后的可见页面顺序。

@@ -168,3 +168,20 @@ input:focus-visible, select:focus-visible, summary:focus-visible { outline: 3px 
 .duplicateNotice { margin-top: 16px; border: 1px solid #e4ca94; background: #fff8eb; padding: 12px; color: #202733; font-size: 13px; }
 .duplicateNotice p, .transferDetails p { overflow-wrap: anywhere; }
 .transferDetails { border-top: 1px solid #DDE3EB; padding-top: 14px; }
+
+.modeSwitcher { display: flex; gap: 4px; flex-shrink: 0; }
+.modeSwitcher button { font-size: 12px; padding: 7px 9px; }
+.modeSwitcher button[aria-pressed="true"], .readingTools button[aria-pressed="true"] { color: #365FC7; background: #edf2fc; border-color: #365FC7; }
+.readingTools, .batchTools { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 12px; background: #fff; border: 1px solid #DDE3EB; margin-bottom: 14px; font-size: 12px; }
+.readingTools label, .batchTools label, .pageSettings label { display: inline-flex; align-items: center; gap: 6px; }
+.readingTools input[type="number"] { width: 70px; }
+.batchTools input { width: 160px; }
+.readingTools select, .batchTools select, .pageSettings select { padding: 5px; font-size: 12px; }
+.readingTools button, .batchTools button, .pageLabel button { font-size: 12px; padding: 6px 9px; }
+.pageLabel { flex-wrap: wrap; }
+.pageSettings { margin-left: auto; display: flex; gap: 10px; font-size: 12px; }
+.pdfSurface { min-width: 0; }
+.pdfViewport { width: 100%; overflow: auto; }
+.pdfPage { max-width: none; margin: 0 auto; }
+.workspace:fullscreen, :fullscreen .workspace { background: #F5F7FA; }
+@media (max-width: 740px) { .toolbar { flex-wrap: wrap; gap: 5px; padding: 5px 10px; } .breadcrumb { flex-basis: 50%; } .modeSwitcher button { padding: 5px; } .pageSettings { margin-left: 0; } }

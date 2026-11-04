@@ -16,6 +16,7 @@ from werkzeug.exceptions import HTTPException
 
 from .models import Material, Page, PageNote, QAEntry
 from .directory import SYSTEM_COURSE_ID, bump, destination as validate_destination, duplicate_json, material_json, register_directory, snapshot
+from .page_settings import register_page_settings, settings_json
 from .storage import file_hash, migrate_database, reset_storage
 
 BACKEND = Path(__file__).resolve().parents[1]
@@ -57,7 +58,7 @@ def create_app(data_dir=None):
                 "position": entry.position, "version": entry.version, "deleted": entry.deleted}
 
     def page_json(page):
-        return {"id": page.id, "number": page.number, "note": page.note.content, "version": page.note.version,
+        return {**settings_json(page), "note": page.note.content, "version": page.note.version,
                 "summary": page.note.summary, "summary_version": page.note.summary_version,
                 "qa": [qa_json(entry) for entry in page.qa if not entry.deleted]}
 
@@ -228,6 +229,7 @@ def create_app(data_dir=None):
             return jsonify(qa_json(entry))
 
     register_directory(app, engine, data)
+    register_page_settings(app, engine)
 
     dist = BACKEND.parent / "frontend" / "dist"
 

@@ -41,3 +41,15 @@ export function NoteEditor({ page, store }: { page: Page; store: DraftStore }) {
     <Fold title="追问与 AI 解答" info={`${qa.filter(entry => !entry.value.deleted).length} 条问答`}>{qa.map((entry, index) => <div className="qaEntry" key={entry.id}><div className="qaHeading"><strong>问答 {index + 1}</strong><button disabled={!!entry.value.deleted || !!entry.conflict || entry.missing} onClick={() => { if (window.confirm('删除这条问答及其草稿？')) store.edit(entry, { ...entry.value, deleted: true }) }}>删除问答</button></div>{entry.value.deleted && <p>正在删除；失败时可重试。</p>}<Field readOnly={!!entry.value.deleted || entry.missing} label={`问题 ${index + 1}`} value={entry.value.question ?? ''} onChange={question => store.edit(entry, { ...entry.value, question })} onSave={() => void store.save(entry)} /><Field readOnly={!!entry.value.deleted || entry.missing} label={`回答 ${index + 1}`} value={entry.value.answer ?? ''} onChange={answer => store.edit(entry, { ...entry.value, answer })} onSave={() => void store.save(entry)} /><SaveState entry={entry} store={store} label="问答" /></div>)}<button className="addQA" onClick={() => { const entry = store.add(page.id, 'qa', crypto.randomUUID().replaceAll('-', ''), { question: '', answer: '', deleted: false }, 0); store.edit(entry, entry.value) }}>＋ 添加问答</button></Fold>
   </div>
 }
+
+export function NotePreview({ page, store }: { page: Page; store: DraftStore }) {
+  const entries = Object.values(store.entries).filter(entry => entry.pageId === page.id)
+  const note = entries.find(entry => entry.kind === 'note')
+  const summary = entries.find(entry => entry.kind === 'summary')
+  const qa = entries.filter(entry => entry.kind === 'qa' && !entry.value.deleted)
+  return <div className="notePanel" aria-label={`第 ${page.number} 页笔记预览`}>
+    <Fold defaultOpen title="AI 解释与总结" info={summary?.value.summary ? '已有内容' : '暂无内容'}><MarkdownPreview text={summary?.value.summary ?? ''} /></Fold>
+    <Fold defaultOpen title="个人笔记" info={note?.value.note ? '已有内容' : '暂无内容'}><MarkdownPreview text={note?.value.note ?? ''} /></Fold>
+    <Fold defaultOpen title="追问与 AI 解答" info={`${qa.length} 条问答`}>{qa.map((entry, index) => <div className="qaEntry" key={entry.id}><strong>问题 {index + 1}</strong><MarkdownPreview text={entry.value.question ?? ''} /><strong>回答 {index + 1}</strong><MarkdownPreview text={entry.value.answer ?? ''} /></div>)}</Fold>
+  </div>
+}

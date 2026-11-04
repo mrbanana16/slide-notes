@@ -68,7 +68,7 @@ def test_reset_rebuilds_database_removes_files_and_can_import_again(app):
     with app.extensions['engine'].connect() as connection:
         for table in ('materials', 'pages', 'page_notes', 'qa_entries'):
             assert connection.scalar(text(f'SELECT count(*) FROM {table}')) == 0
-        assert connection.scalar(text('SELECT version_num FROM alembic_version')) == '0005'
+        assert connection.scalar(text('SELECT version_num FROM alembic_version')) == '0006'
     restarted = create_app(data)
     try:
         assert restarted.test_client().get('/api/materials').get_json() == []

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { TextLayer, type PDFDocumentProxy } from 'pdfjs-dist'
 import 'pdfjs-dist/web/pdf_viewer.css'
 
-export function PdfPage({ pdf, number }: { pdf: PDFDocumentProxy; number: number }) {
+export function PdfPage({ pdf, number, zoom = 1, fit = false }: { pdf: PDFDocumentProxy; number: number; zoom?: number; fit?: boolean }) {
   const container = useRef<HTMLDivElement>(null)
   const [visible, setVisible] = useState(false)
   const [error, setError] = useState('')
@@ -18,13 +18,17 @@ export function PdfPage({ pdf, number }: { pdf: PDFDocumentProxy; number: number
     let render: ReturnType<Awaited<ReturnType<PDFDocumentProxy['getPage']>>['render']> | undefined
     let text: TextLayer | undefined
     let observer: ResizeObserver | undefined
+    let onResize: (() => void) | undefined
     void pdf.getPage(number).then(page => {
       if (stopped) return
       const draw = async () => {
         render?.cancel()
         text?.cancel()
         element.replaceChildren()
-        const scale = Math.max(1, element.clientWidth) / page.getViewport({ scale: 1 }).width
+        const original = page.getViewport({ scale: 1 })
+        const available = Math.max(1, element.parentElement!.clientWidth)
+        const scale = fit ? Math.min(available / original.width, Math.max(160, window.innerHeight - 300) / original.height) : available * zoom / original.width
+        element.style.width = `${original.width * scale}px`
         const viewport = page.getViewport({ scale })
         element.style.aspectRatio = `${viewport.width} / ${viewport.height}`
         element.style.setProperty('--scale-factor', String(scale))
@@ -48,13 +52,16 @@ export function PdfPage({ pdf, number }: { pdf: PDFDocumentProxy; number: number
           if (!stopped && !(cause instanceof Error && /cancel/i.test(cause.name + cause.message))) setError('此页显示失败，请重新打开课件。')
         }
       }
-      let width = 0
-      observer = new ResizeObserver(() => {
-        if (element.clientWidth !== width) { width = element.clientWidth; void draw() }
-      })
-      observer.observe(element)
+      let dimensions = ''
+      onResize = () => {
+        const next = `${element.parentElement!.clientWidth}:${window.innerHeight}`
+        if (next !== dimensions) { dimensions = next; void draw() }
+      }
+      observer = new ResizeObserver(onResize)
+      observer.observe(element.parentElement!)
+      window.addEventListener('resize', onResize)
     }).catch(() => { if (!stopped) setError('此页无法读取，请重新导出 PDF。') })
-    return () => { stopped = true; observer?.disconnect(); render?.cancel(); text?.cancel(); element.replaceChildren() }
-  }, [pdf, number, visible])
-  return <div className="pdfSurface"><div ref={container} className="pdfPage" />{error && <p role="alert">{error}</p>}</div>
+    return () => { stopped = true; if (onResize) window.removeEventListener('resize', onResize); observer?.disconnect(); render?.cancel(); text?.cancel(); element.replaceChildren() }
+  }, [pdf, number, visible, zoom, fit])
+  return <div className="pdfSurface"><div className="pdfViewport"><div ref={container} className="pdfPage" /></div>{error && <p role="alert">{error}</p>}</div>
 }
