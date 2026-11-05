@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, within, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import App from './App'
 
@@ -178,7 +178,6 @@ it('preserves the old directory and draft on stale order, then reloads the curre
 })
 
 it('shows saved note counts, cancels deletion, and clears only the confirmed material drafts', async () => {
-  const confirm = vi.spyOn(window, 'confirm').mockReturnValueOnce(false).mockReturnValueOnce(true)
   let finishSave!: (response: Response) => void
   const fetch = vi.fn(async (url: string, options?: RequestInit) => {
     if (url === '/api/materials/a' && options?.method === 'DELETE') return new Response(JSON.stringify({ ...directory([materials[1]]), revision: 1 }))
@@ -192,13 +191,15 @@ it('shows saved note counts, cancels deletion, and clears only the confirmed mat
   fireEvent.change(await screen.findByLabelText('个人笔记'), { target: { value: '删除的草稿' } })
   const menu = screen.getByLabelText('第一份.pdf的操作').parentElement!
   fireEvent.click(menu.querySelector('.deleteAction')!)
-  await waitFor(() => expect(confirm).toHaveBeenCalledTimes(1))
-  expect(confirm.mock.calls[0][0]).toContain('3 条已保存笔记／问答')
-  expect(confirm.mock.calls[0][0]).toContain('1 处未保存编辑')
+  const description = await screen.findByText(/3 条已保存笔记／问答/)
+  expect(description.textContent).toContain('1 处未保存编辑')
+  fireEvent.click(screen.getByRole('button', { name: '取消' }))
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
   expect(fetch.mock.calls.some(call => call[1]?.method === 'DELETE')).toBe(false)
   expect((screen.getByLabelText('个人笔记') as HTMLTextAreaElement).value).toBe('删除的草稿')
   fireEvent.click(screen.getByText('保存笔记'))
   fireEvent.click(menu.querySelector('.deleteAction')!)
+  fireEvent.click(await screen.findByRole('button', { name: '确认删除' }))
   await screen.findByText('课件及其关联笔记已删除。')
   finishSave(new Response(JSON.stringify({ id: 'page-a', number: 1, note: '迟到保存', version: 1 })))
   await waitFor(() => expect(screen.queryByText('1 页未保存')).toBeNull())
@@ -217,8 +218,10 @@ it('imports to the selected course and optional chapter only after explicit conf
   render(<App />)
   await screen.findByText('第一份.pdf')
   fireEvent.click(screen.getByText('＋ 导入 PDF'))
-  fireEvent.change(screen.getByLabelText('导入到课程'), { target: { value: 'course' } })
-  fireEvent.change(screen.getByLabelText('导入到章节'), { target: { value: 'chapter' } })
+  fireEvent.mouseDown(screen.getByLabelText('导入到课程'))
+  fireEvent.click(await screen.findByRole('option', { name: '数据结构' }))
+  fireEvent.mouseDown(screen.getByLabelText('导入到章节'))
+  fireEvent.click(await within(screen.getByRole('dialog')).findByRole('option', { name: '第一章' }))
   fireEvent.change(screen.getByLabelText('选择 PDF 课件'), { target: { files: [new File(['%PDF'], '新课件.pdf')] } })
   expect(fetch.mock.calls.some(call => call[1]?.method === 'POST')).toBe(false)
   fireEvent.click(screen.getByText('确认导入'))
@@ -232,28 +235,35 @@ it('creates a first course inside the import dialog and selects it for upload', 
   const initial = { revision: 1, courses: [system], chapters: [], materials: [] }
   const fetch = vi.fn(async (url: string, options?: RequestInit) => {
     if (url === '/api/courses') return new Response(JSON.stringify({ ...directory([]), revision: 2 }), { status: 201 })
+    if (url === '/api/chapters') return Response.json({ ...directory([]), revision: 3, chapters: [{ id: 'created', course_id: 'course', name: '绪论', position: 0 }] })
+
     if (url === '/api/materials' && options?.method === 'POST') return new Response(JSON.stringify(materials[0]))
     return new Response(JSON.stringify(url === '/api/directory' ? (options ? directory() : initial) : []))
   })
   vi.stubGlobal('fetch', fetch)
   render(<App />)
-  await screen.findByText('▾ 未分类')
+  await screen.findByLabelText('收起未分类')
   fireEvent.click(screen.getByText('＋ 导入 PDF'))
-  expect((screen.getByLabelText('导入到课程') as HTMLSelectElement).value).toBe('system')
-  expect((screen.getByText('确认导入') as HTMLButtonElement).disabled).toBe(true)
+  fireEvent.mouseDown(screen.getByLabelText('导入到课程'))
+  expect((screen.getByRole('button', { name: '确认导入' }) as HTMLButtonElement).disabled).toBe(true)
   fireEvent.change(screen.getByLabelText('新课程名称'), { target: { value: '数据结构' } })
-  fireEvent.click(screen.getByText('创建课程'))
-  await waitFor(() => expect((screen.getByLabelText('导入到课程') as HTMLSelectElement).value).toBe('course'))
+  fireEvent.click(screen.getByRole('button', { name: '创建' }))
+  await waitFor(() => expect(screen.getByLabelText('导入到课程').closest('.destinationChoice')?.textContent).toContain('数据结构'))
   const creation = fetch.mock.calls.find(call => call[0] === '/api/courses')!
   expect(JSON.parse(creation[1]!.body as string)).toEqual({ revision: 1, name: '数据结构' })
+  fireEvent.mouseDown(screen.getByLabelText('导入到章节'))
+  fireEvent.change(screen.getByLabelText('新章节名称'), { target: { value: '绪论' } })
+  fireEvent.click(screen.getByRole('button', { name: '创建' }))
+  await waitFor(() => expect(screen.getByLabelText('导入到章节').closest('.destinationChoice')?.textContent).toContain('绪论'))
+  expect(JSON.parse(fetch.mock.calls.find(call => call[0] === '/api/chapters')![1]!.body as string)).toEqual({ revision: 2, course_id: 'course', name: '绪论' })
   fireEvent.click(screen.getByText('取消'))
-  expect(screen.queryByRole('dialog')).toBeNull()
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
   expect(fetch.mock.calls.some(call => call[0] === '/api/materials')).toBe(false)
 })
 
 it('keeps the open editor and draft after material deletion fails', async () => {
-  vi.spyOn(window, 'confirm').mockReturnValue(true)
   vi.stubGlobal('fetch', vi.fn(async (url: string, options?: RequestInit) => {
+    if (options?.method === 'PUT') return Response.json({ error: '保存暂不可用' }, { status: 503 })
     if (url === '/api/materials/a' && options?.method === 'DELETE') return new Response(JSON.stringify({ error: '删除失败' }), { status: 500 })
     if (url === '/api/materials/a') return new Response(JSON.stringify({ ...materials[0], note_count: 0, page_ids: ['page-a'] }))
     return new Response(JSON.stringify(url === '/api/directory' ? directory() : [{ id: 'page-a', number: 1, note: '', version: 0 }]))
@@ -262,6 +272,7 @@ it('keeps the open editor and draft after material deletion fails', async () => 
   fireEvent.click(await screen.findByText('第一份.pdf'))
   fireEvent.change(await screen.findByLabelText('个人笔记'), { target: { value: '失败保留' } })
   fireEvent.click(screen.getByLabelText('第一份.pdf的操作').parentElement!.querySelector('.deleteAction')!)
+  fireEvent.click(await screen.findByRole('button', { name: '确认删除' }))
   await screen.findByText('删除失败')
   expect((screen.getByLabelText('个人笔记') as HTMLTextAreaElement).value).toBe('失败保留')
   expect(screen.getByText('1 页未保存')).toBeTruthy()
@@ -328,4 +339,20 @@ it('hydrates the stored dark theme directly and batches a later change in one vi
   } finally {
     Reflect.deleteProperty(document, 'startViewTransition')
   }
+})
+
+it('opens the narrow directory as a drawer and keeps the selected page on screen', async () => {
+  vi.stubGlobal('matchMedia', (media: string) => Object.assign(new EventTarget(), {
+    media, matches: media === '(max-width: 740px)', addListener() {}, removeListener() {},
+  }))
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => Response.json(url === '/api/directory' ? directory()
+    : [{ id: 'p1', number: 1, note: '已保存', version: 1 }])))
+  render(<App />)
+  await screen.findByText('从一份课件开始')
+  expect(screen.queryByRole('navigation')).toBeNull()
+  fireEvent.click(screen.getByLabelText('展开目录'))
+  fireEvent.click(await screen.findByText('第一份.pdf'))
+  await screen.findByText('PDF 第 1 页')
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+  expect(screen.getByLabelText('所有笔记已保存')).toBeTruthy()
 })

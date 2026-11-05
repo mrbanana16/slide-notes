@@ -52,7 +52,7 @@ it('reorders through the actual keyboard drag sensor without leaving a stale ove
   installRects()
   const mutate = vi.fn(async () => true)
   render(<Directory data={initial} selected="a" busy={false} onSelect={vi.fn()} onDelete={vi.fn()} mutate={mutate} />)
-  const handle = screen.getByLabelText('拖动a.pdf')
+  const handle = screen.getByLabelText('a.pdf')
   handle.focus()
   fireEvent.keyDown(handle, { code: 'Space', key: ' ' })
   await waitFor(() => expect(document.querySelector('.directoryDragPreview')).not.toBeNull())
@@ -78,7 +78,7 @@ it('persists a mouse pointer drop in its destination with no remaining drag prev
     }} />
   }
   render(<Harness />)
-  fireEvent.pointerDown(screen.getByLabelText('拖动a.pdf'), { clientX: 80, clientY: 70, button: 0 })
+  fireEvent.pointerDown(screen.getByLabelText('a.pdf'), { clientX: 80, clientY: 70, button: 0 })
   fireEvent.pointerMove(document, { clientX: 80, clientY: 90 })
   await waitFor(() => expect(document.querySelector('.directoryDragPreview')).not.toBeNull())
   fireEvent.pointerMove(document, { clientX: 80, clientY: 125 })

@@ -6,7 +6,7 @@ import zhCN from 'antd/locale/zh_CN'
 export type DisplayMode = 'system' | 'light' | 'dark'
 const preferenceKey = 'slide-notes:display-mode'
 
-function useMediaPreference(query: string) {
+export function useMediaPreference(query: string) {
   const [media] = useState(() => window.matchMedia?.(query))
   const [matches, setMatches] = useState(media?.matches ?? false)
   useEffect(() => {

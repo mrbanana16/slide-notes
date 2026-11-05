@@ -1,26 +1,55 @@
-import { useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
+import { Button, Input, Modal, Select } from 'antd'
 import type { Directory } from './api'
+import { PdfIcon } from './ReadingControls'
+import { overlayContainer } from './theme'
 
-export function ImportDialog({ directory, course, chapter, file, busy, error, duplicate, onOpenExisting, onCourse, onChapter, onFile, onReload, onClose, onSubmit, onCreate }: {
-  directory: Directory; course: string; chapter: string; file: File | null; busy: boolean; error: string; duplicate?: string; onOpenExisting: () => void
-  onCourse: (id: string) => void; onChapter: (id: string) => void; onFile: (file: File | null) => void
-  onReload: () => void; onClose: () => void; onSubmit: () => void; onCreate: (name: string) => Promise<boolean>
-}) {
-  const fileInput = useRef<HTMLInputElement>(null)
-  const dialog = useRef<HTMLDialogElement>(null)
+type ChoiceProps = {
+  kind: string; value: string; options: { value: string; label: string }[]; disabled: boolean
+  onSelect: (value: string) => void; onCreate: (name: string) => Promise<boolean>
+}
+function DestinationChoice({ kind, value, options, disabled, onSelect, onCreate }: ChoiceProps) {
   const [name, setName] = useState('')
-  useEffect(() => { const node = dialog.current; node?.showModal(); return () => node?.close() }, [])
-  return <dialog ref={dialog} className="importDialog" aria-labelledby="importTitle" onCancel={event => { event.preventDefault(); if (!busy) onClose() }}>
-    <h2 id="importTitle">导入 PDF 课件</h2>
-    <p>选择课程与章节，笔记将随课件一起归档。</p>
-    <label>课程<select autoFocus aria-label="导入到课程" disabled={busy} value={course} onChange={event => onCourse(event.target.value)}><option value="" disabled>请选择课程</option>{directory.courses.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>
-    <label>章节（可选）<select aria-label="导入到章节" disabled={busy || !course} value={chapter} onChange={event => onChapter(event.target.value)}><option value="">课程直属（无章节）</option>{directory.chapters.filter(c => c.course_id === course).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>
-    <form className="inlineCreate" onSubmit={event => { event.preventDefault(); void onCreate(name).then(ok => { if (ok) setName('') }) }}><input aria-label="新课程名称" placeholder="也可在此创建课程" maxLength={200} value={name} disabled={busy} onChange={event => setName(event.target.value)} /><button disabled={busy || !name.trim()}>创建课程</button></form>
-    <button className="chooseFile" disabled={busy} onClick={() => fileInput.current?.click()}>{file ? file.name : '选择 PDF 文件'}</button>
-    <input ref={fileInput} type="file" accept="application/pdf,.pdf" aria-label="选择 PDF 课件" hidden onChange={event => onFile(event.target.files?.[0] ?? null)} />
-    <small>最大 100 MB，也可先将 PDF 拖入工作区。</small>
-    {duplicate && <div className="duplicateNotice" role="status"><strong>课件已存在</strong><p>所在位置：{duplicate}</p><p>未创建新课件，也未改变原归属。</p><button disabled={busy} onClick={onOpenExisting}>打开已有课件</button></div>}
-    {error && <p role="alert" className="error">{error} <button disabled={busy} onClick={onReload}>重新加载目录</button></p>}
-    <div className="dialogFooter"><button disabled={busy} onClick={onClose}>取消</button><button className="primary" disabled={busy || !file || !course || !!duplicate} onClick={onSubmit}>{busy ? '正在处理…' : '确认导入'}</button></div>
-  </dialog>
+  const [open, setOpen] = useState(false)
+  return <div className="destinationChoice"><span>{kind}</span>
+    <Select aria-label={'导入到' + kind} value={value} options={options} disabled={disabled} open={open}
+      onOpenChange={setOpen} onChange={v => { onSelect(v); setOpen(false) }} virtual={false}
+      getPopupContainer={node => node.parentElement!}
+      popupRender={menu => <>{menu}<form className="createDestination" onKeyDown={e => { if (e.key !== 'Escape') e.stopPropagation() }}
+        onSubmit={async e => { e.preventDefault(); if (name.trim() && await onCreate(name.trim())) { setName(''); setOpen(false) } }}>
+        <Input aria-label={'新' + kind + '名称'} placeholder={'也可在这里创建新' + kind + '...'} value={name} maxLength={200}
+          disabled={disabled} onChange={e => setName(e.target.value)} />
+        <Button htmlType="submit" disabled={disabled || !name.trim()}>创建</Button>
+      </form></>} />
+  </div>
+}
+
+type Props = {
+  open: boolean; directory: Directory; course: string; chapter: string; file: File | null; busy: boolean; error: string; duplicate?: string
+  onOpenExisting: () => void; onCourse: (id: string) => void; onChapter: (id: string) => void; onFile: (file: File) => void
+  onReload: () => void; onClose: () => void; onSubmit: () => void; onCreate: (name: string, chapter: boolean) => Promise<boolean>
+}
+export function ImportDialog({ open, directory, course, chapter, file, busy, error, duplicate, onOpenExisting, onCourse, onChapter, onFile, onReload, onClose, onSubmit, onCreate }: Props) {
+  const input = useRef<HTMLInputElement>(null)
+  const [drag, setDrag] = useState(false)
+  const options = (items: { id: string; name: string }[]) => items.map(item => ({ value: item.id, label: item.name }))
+  return <Modal title="导入 PDF 课件" open={open} destroyOnHidden getContainer={overlayContainer} onCancel={onClose}
+    closable={!busy} mask={{ closable: !busy }} keyboard={!busy} cancelText="取消" okText="确认导入"
+    onOk={onSubmit} okButtonProps={{ disabled: busy || !file || !course || !!duplicate }} cancelButtonProps={{ disabled: busy }}
+    afterClose={() => setDrag(false)}
+    modalRender={content => <div onDragOver={e => { e.preventDefault(); if (!busy) setDrag(true) }}
+      onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDrag(false) }}
+      onDrop={e => { e.preventDefault(); setDrag(false); const next = e.dataTransfer.files[0]; if (next && !busy) onFile(next) }}>{content}</div>}>
+    <div className="importFields">
+      <button className={'fileDrop' + (drag ? ' dragOver' : '')} disabled={busy} onClick={() => input.current?.click()}>
+        {file ? <><PdfIcon /><span><strong>{file.name}</strong><small>{file.size < 1048576 ? (file.size / 1024).toFixed(2) + ' KB' : (file.size / 1048576).toFixed(2) + ' MB'} · {new Date(file.lastModified).toLocaleString('sv-SE').slice(0,16)} 修改</small></span></>
+          : <span><svg viewBox="0 0 24 24" width="26" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><path d="M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5"/></svg><strong>选择PDF文件</strong><small>目前仅支持PDF格式课件，大小上限为100MB</small></span>}
+      </button>
+      <input ref={input} hidden type="file" accept="application/pdf,.pdf" aria-label="选择 PDF 课件" onChange={e => { if (e.target.files?.[0]) onFile(e.target.files[0]); e.target.value = '' }} />
+      <DestinationChoice kind="课程" value={course} options={options(directory.courses)} disabled={busy} onSelect={onCourse} onCreate={name => onCreate(name, false)} />
+      <DestinationChoice key={course} kind="章节" value={chapter} options={[{ value: '', label: '课程直属（无章节）' }, ...options(directory.chapters.filter(c => c.course_id === course))]} disabled={busy || !course} onSelect={onChapter} onCreate={name => onCreate(name, true)} />
+      {duplicate && <div className="duplicateNotice" role="status"><strong>课件已存在</strong><p>所在位置：{duplicate}</p><Button onClick={onOpenExisting}>打开已有课件</Button></div>}
+      {error && <p role="alert" className="error">{error} <Button disabled={busy} onClick={onReload}>重新加载目录</Button></p>}
+    </div>
+  </Modal>
 }

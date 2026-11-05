@@ -1,4 +1,6 @@
-import { useEffect, useRef, useState } from 'react'
+import { Drawer, Modal, Popover } from 'antd'
+import { Divider, PdfIcon, ripple, useLayoutSize } from './ReadingControls'
+import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { getDocument, GlobalWorkerOptions, type PDFDocumentProxy } from 'pdfjs-dist'
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import { api, type Material, type Page, type Directory as DirectoryData } from './api'
@@ -8,7 +10,7 @@ import { DraftStore } from './drafts'
 import { Directory } from './Directory'
 import { ImportDialog } from './ImportDialog'
 import { materialPath } from './directoryOrder'
-import { WorkspaceTheme, useDisplayMode } from './theme'
+import { WorkspaceTheme, overlayContainer, useDisplayMode, useMediaPreference } from './theme'
 import { SystemSettings } from './SystemSettings'
 import './styles.css'
 
@@ -37,6 +39,22 @@ export default function App() {
   const [loading, setLoading] = useState(true)
   const [uploading, setUploading] = useState(false)
   const [documentLoading, setDocumentLoading] = useState(false)
+  const [modal, modalHolder] = Modal.useModal()
+  const narrow = useMediaPreference('(max-width: 740px)')
+  const width = useLayoutSize('slide-notes:sidebar-width', 320, 215, 440)
+  const [drawer, setDrawer] = useState(false)
+  const [full, setFull] = useState(!!document.fullscreenElement)
+  useEffect(() => {
+    const sync = () => setFull(!!document.fullscreenElement)
+    document.addEventListener('fullscreenchange', sync)
+    return () => document.removeEventListener('fullscreenchange', sync)
+  }, [])
+  async function fullscreen() {
+    try {
+      if (document.fullscreenElement) await document.exitFullscreen()
+      else await document.documentElement.requestFullscreen()
+    } catch { setNotice('浏览器未进入全屏，仍可在当前窗口继续阅读或沉浸整理。') }
+  }
   const [sidebar, setSidebar] = useState(true)
   const [mode, setMode] = useState<Mode>('organize')
   const readOnly = mode === 'review'
@@ -102,6 +120,10 @@ export default function App() {
         const created = next.courses.find(c => !directory.courses.some(old => old.id === c.id))
         if (created) { setImportCourse(created.id); setImportChapter('') }
       }
+      if (importOpen && url === '/api/chapters' && method === 'POST') {
+        const created = next.chapters.find(ch => !directory.chapters.some(old => old.id === ch.id))
+        if (created) setImportChapter(created.id)
+      }
       setNotice('目录已保存。')
       return true
     } catch (cause) {
@@ -116,6 +138,7 @@ export default function App() {
     setImportFile(file ?? null)
     setImportCourse(selected?.course_id ?? directory.courses[0]?.id ?? '')
     setImportChapter(selected?.chapter_id ?? '')
+    setDrawer(false)
     setImportOpen(true)
   }
   async function deleteMaterial(material: Material) {
@@ -125,7 +148,7 @@ export default function App() {
     try {
       const detail = await api<Material & { note_count: number; page_ids: string[] }>(`/api/materials/${material.id}`)
       const local = Object.values(store.entries).filter(entry => detail.page_ids.includes(entry.pageId) && store.dirty(entry)).length
-      if (!window.confirm(`删除“${material.filename}”？将永久删除原始 PDF、${material.page_count} 页及 ${detail.note_count} 条已保存笔记／问答${local ? `，并丢弃 ${local} 处未保存编辑` : ''}。无法撤销。`)) return
+      if (!await modal.confirm({ getContainer: overlayContainer, title: '删除课件？', okText: '确认删除', cancelText: '取消', okButtonProps: { danger: true }, content: `删除“${material.filename}”？将永久删除原始 PDF、${material.page_count} 页及 ${detail.note_count} 条已保存笔记／问答${local ? `，并丢弃 ${local} 处未保存编辑` : ''}。无法撤销。` })) return
       store.pause(true); paused = true
       const next = await api<DirectoryData>(`/api/materials/${material.id}`, { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ revision: directory.revision, confirmation: material.id }) })
       store.removePages(detail.page_ids)
@@ -197,25 +220,74 @@ export default function App() {
     } finally { operation.current = false; store.pause(false); setResetting(false) }
   }
 
-  return <WorkspaceTheme mode={displayMode}><div className={`workspace ${sidebar && mode !== 'immerse' ? '' : 'sidebarClosed'}`}>
-    <aside className="sidebar" aria-label="课件目录">
-      <div className="brand"><span className="brandMark" aria-hidden="true">页</span><div><strong>slide-notes</strong><small>把理解留在每一页</small></div></div>
-      <Directory readOnly={readOnly} data={directory} selected={selected?.id} busy={loading || uploading || resetting || directoryBusy} onSelect={setSelected} mutate={mutateDirectory} onDelete={deleteMaterial} />
-      <div className="sidebarBottom"><button className="primary" disabled={readOnly || uploading || resetting || directoryBusy || loading} onClick={() => prepareImport()}>{uploading ? '正在导入…' : '＋ 导入 PDF'}</button><p>课件与笔记保存在本机</p><button onClick={() => setSettingsOpen(true)}>系统设置</button></div>
-    </aside>
-    <header className="toolbar"><button disabled={mode === 'immerse'} className="sidebarToggle" aria-label={sidebar ? '收起目录' : '展开目录'} onClick={() => setSidebar(value => !value)}>☰</button><div className="breadcrumb">{selected ? <><span>{directory.courses.find(c => c.id === selected.course_id)?.name}{selected.chapter_id ? ` / ${directory.chapters.find(c => c.id === selected.chapter_id)?.name}` : ''} /</span> <strong>{selected.filename}</strong></> : <strong>学习工作台</strong>}</div><div className="modeSwitcher" aria-label="工作模式">{([['organize', '整理'], ['review', '复习'], ['immerse', '沉浸整理']] as const).map(([value, label]) => <button key={value} aria-pressed={mode === value} disabled={uploading || resetting || directoryBusy || importOpen} onClick={() => setMode(value)}>{label}</button>)}</div><span className="globalStatus" role="status">{dirtyCount ? `${dirtyCount} 页未保存` : '所有笔记已保存'}</span></header>
-    <main ref={reader} className="reader" onDragOver={event => { event.preventDefault(); if (!readOnly) setDragging(true) }} onDragLeave={event => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setDragging(false) }} onDrop={event => { event.preventDefault(); setDragging(false); if (!readOnly) prepareImport(event.dataTransfer.files[0]) }}>
+  const directoryPanel = <>
+      <div className="brand"><span className="brandMark" aria-hidden="true">P</span><div><strong>slide-notes</strong><small>把理解留在每一页</small></div></div>
+      <div className="directoryImport"><button className="primary" disabled={readOnly || uploading || resetting || directoryBusy || loading} onClick={() => prepareImport()}>{uploading ? '正在导入…' : '＋ 导入 PDF'}</button></div>
+      <Directory readOnly={readOnly} data={directory} selected={selected?.id} busy={loading || uploading || resetting || directoryBusy} onSelect={material => { setSelected(material); setDrawer(false) }} mutate={mutateDirectory} onDelete={deleteMaterial} />
+      <div className="sidebarBottom"><button onClick={() => { setDrawer(false); setSettingsOpen(true) }}><span aria-hidden="true">⚙ </span>系统设置</button></div>
+  </>
+  useEffect(() => {
+    const probe = document.createElement('div')
+    probe.style.cssText = 'position:absolute;visibility:hidden;width:100px;height:100px;overflow:scroll'
+    document.body.append(probe)
+    reader.current?.style.setProperty('--scrollbar-width', (probe.offsetWidth - probe.clientWidth) + 'px')
+    probe.remove()
+  }, [])
+  const [immersiveSidebar, setImmersiveSidebar] = useState(false)
+  const sidebarVisible = mode === 'immerse' ? immersiveSidebar : sidebar
+  const directoryVisible = narrow ? drawer : sidebarVisible
+  function changeMode(next: Mode) {
+    if (next !== mode) { setDrawer(false); setImmersiveSidebar(false) }
+    setMode(next)
+  }
+  function toggleDirectory() {
+    if (narrow) setDrawer(!drawer)
+    else if (mode === 'immerse') setImmersiveSidebar(!immersiveSidebar)
+    else setSidebar(!sidebar)
+  }
+  const destinationCourse = importCourse || directory.courses[0]?.id || ''
+  const saveText = dirtyCount ? dirtyCount + ' 页未保存' : '所有笔记已保存'
+  return <WorkspaceTheme mode={displayMode}><div className={'workspace ' + (sidebarVisible && !narrow ? '' : 'sidebarClosed')}
+    style={{ '--course-width': width.value + 'px' } as CSSProperties}>
+    {modalHolder}
+    {narrow ? <Drawer title="课程目录" placement="left" open={drawer} onClose={() => setDrawer(false)} getContainer={overlayContainer}
+      styles={{ body: { padding: 0, display: 'flex', flexDirection: 'column' }, wrapper: { maxWidth: '90vw' } }}>
+      <div className="courseSidebar drawerSidebar">{directoryPanel}</div>
+    </Drawer> : <aside className="courseSidebar" aria-label="课件目录" inert={!sidebarVisible}>{directoryPanel}<Divider label="目录宽度" size={width} /></aside>}
+    <div className="readingFrame"><section className="readerScroll" ref={reader}>
+    <header className="toolbar">
+      <button className="sidebarToggle" aria-expanded={directoryVisible}
+        aria-label={directoryVisible ? '收起目录' : '展开目录'} onClick={e => { ripple(e); toggleDirectory() }}>☰</button>
+      <div className="breadcrumb">{selected ? <><span>{directory.courses.find(c => c.id === selected.course_id)?.name}
+        {selected.chapter_id ? ' / ' + directory.chapters.find(c => c.id === selected.chapter_id)?.name : ''} /</span> <strong>{selected.filename}</strong></> : <strong>学习工作台</strong>}</div>
+      <button className="fullIcon" aria-label={full ? '退出全屏' : '全屏'} title={full ? '退出全屏' : '全屏'} onClick={() => void fullscreen()}>
+        <svg viewBox="0 0 24 24" width="18" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+          <path d={full ? 'M3 8h5V3m8 0v5h5M3 16h5v5m8 0v-5h5' : 'M3 9V3h6m6 0h6v6M3 15v6h6m6 0h6v-6'} />
+        </svg>
+      </button>
+      <div className="modeSwitcher" aria-label="工作模式">
+        {([['organize', '整理'], ['review', '复习'], ['immerse', '沉浸整理']] as const).map(([value, label]) =>
+          <button key={value} aria-pressed={mode === value} disabled={uploading || resetting || directoryBusy || importOpen}
+            onClick={e => { ripple(e); changeMode(value) }}>{label}</button>)}
+      </div>
+      <Popover trigger={['hover', 'click', 'focus']} placement="bottomRight" content={<div>{saveText}<hr />停止输入约 800ms 自动保存，也可使用 ⌘ / Ctrl + S 手动保存</div>}>
+        <button className={narrow ? 'compactStatus' : 'globalStatus'} aria-label={saveText}>
+          {narrow ? <i className={'statusDot ' + (dirtyCount ? 'checking' : 'online')} /> : <span role="status">{saveText}</span>}
+        </button>
+      </Popover>
+    </header>
+    {dragging && <div className="dropOverlay">松开以导入 PDF</div>}
+    <main className="reader" onDragOver={event => { event.preventDefault(); if (!readOnly) setDragging(true) }} onDragLeave={event => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setDragging(false) }} onDrop={event => { event.preventDefault(); setDragging(false); if (!readOnly) prepareImport(event.dataTransfer.files[0]) }}>
       {resetting && <p role="status" className="loading">正在清空全部数据…</p>}
       {store.storageError && <p role="alert" className="errorBanner">{store.storageError}</p>}
       {notice && <div className="noticeBanner" role="status">{notice}</div>}
-      {dragging && <div className="dropOverlay">松开以导入 PDF</div>}
       {error && <div className="errorBanner" role="alert">{error} <button onClick={() => void loadMaterials().then(() => { if (selected) setDocumentRetry(value => value + 1) })}>重新加载</button></div>}
       {directoryBusy && <p role="status">正在保存目录…</p>}
       {loading && <p className="loading" role="status">正在读取课件目录…</p>}
       {!selected && !loading && <div className="emptyState"><div className="emptyPage" aria-hidden="true"><span /><span /><span /></div><h1>从一份课件开始</h1><p>课件在左，理解在右。<br />逐页阅读，把重点写成自己的笔记。</p><button className="primary" disabled={readOnly || uploading || resetting || directoryBusy || loading} onClick={() => prepareImport()}>{uploading ? '正在校验并导入…' : '导入 PDF 课件'}</button><small>也可将 PDF 拖到这里 · 最大 100 MB</small>{materials.length > 0 && <p>或从左侧目录打开已有课件。</p>}</div>}
-      {selected && !resetting && <><div className="documentHeading"><div><h1>{selected.filename.replace(/\.pdf$/i, '')}</h1><p>{selected.page_count} 页 · {mode === 'review' ? '只读复习' : mode === 'immerse' ? '沉浸整理' : '逐页整理'}</p></div><span>{readOnly ? '只读预览 · 先前编辑继续自动保存' : <>停止输入约 800ms 自动保存<br />也可使用 ⌘ / Ctrl + S</>}</span></div>{documentLoading && <p className="loading" role="status">正在加载课件…</p>}{pdf && <Reader key={selected.id} materialId={selected.id} pages={pages} pdf={pdf} store={store} mode={mode} onMode={setMode} reader={reader} onSettings={settings => setPages(old => old.map(page => { const next = settings.find(item => item.id === page.id); return next ? { ...page, category: next.category, display: next.display, settings_version: next.settings_version } : page }))} />}</>}
-    </main>
-    {importOpen && <ImportDialog directory={directory} course={importCourse || directory.courses[0]?.id || ''} chapter={importChapter} file={importFile} busy={uploading || directoryBusy || loading} error={error} duplicate={duplicate?.path} onOpenExisting={() => void openExisting()} onCourse={id => { setImportCourse(id); setImportChapter('') }} onChapter={setImportChapter} onFile={file => { setImportFile(file); setDuplicate(null); setError('') }} onReload={() => { void loadMaterials(); setImportCourse(''); setImportChapter('') }} onClose={() => setImportOpen(false)} onSubmit={() => void upload(importFile ?? undefined)} onCreate={name => mutateDirectory('/api/courses', 'POST', { name })} />}
+      {selected && !resetting && <><div className="documentHeading"><PdfIcon /><h1>{selected.filename.replace(/\.pdf$/i, '')}</h1><small className="pageCount">{selected.page_count}页</small></div>{documentLoading && <p className="loading" role="status">正在加载课件…</p>}{pdf && <Reader key={selected.id} materialId={selected.id} pages={pages} pdf={pdf} store={store} mode={mode} onMode={changeMode} reader={reader} onSettings={settings => setPages(old => old.map(page => { const next = settings.find(item => item.id === page.id); return next ? { ...page, category: next.category, display: next.display, settings_version: next.settings_version } : page }))} />}</>}
+    </main></section></div>
+    <ImportDialog open={importOpen} directory={directory} course={destinationCourse} chapter={importChapter} file={importFile} busy={uploading || directoryBusy || loading} error={error} duplicate={duplicate?.path} onOpenExisting={() => void openExisting()} onCourse={id => { setImportCourse(id); setImportChapter('') }} onChapter={setImportChapter} onFile={file => { setImportFile(file); setDuplicate(null); setError('') }} onReload={() => { void loadMaterials(); setImportCourse(''); setImportChapter('') }} onClose={() => setImportOpen(false)} onSubmit={() => void upload(importFile ?? undefined)} onCreate={(name, isChapter) => isChapter ? mutateDirectory('/api/chapters', 'POST', { name, course_id: destinationCourse }) : mutateDirectory('/api/courses', 'POST', { name })} />
 
     {settingsOpen && <SystemSettings readOnly={readOnly} mode={displayMode} selectMode={selectMode} onClose={() => setSettingsOpen(false)}
       canReset={!readOnly && !uploading && !resetting && !directoryBusy && !loading}

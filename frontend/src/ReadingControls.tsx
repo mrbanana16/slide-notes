@@ -1,0 +1,58 @@
+import { useState, type MouseEvent, type PointerEvent } from 'react'
+
+export function PdfIcon() {
+  return <svg className="pdfIcon" viewBox="0 0 30 36" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.6">
+    <path d="M4 2h14l8 8v24H4z M18 2v9h8" /><text x="5.5" y="26" fill="currentColor" stroke="none" fontSize="9" fontWeight="bold">PDF</text>
+  </svg>
+}
+
+export function ripple(event: MouseEvent<HTMLButtonElement>) {
+  if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return
+  const button = event.currentTarget
+  const rect = button.getBoundingClientRect()
+  const wave = document.createElement('span')
+  wave.className = 'clickWave'
+  wave.style.left = (event.detail ? event.clientX - rect.left : rect.width / 2) + 'px'
+  wave.style.top = (event.detail ? event.clientY - rect.top : rect.height / 2) + 'px'
+  wave.style.width = Math.hypot(rect.width, rect.height) * 2 + 'px'
+  wave.setAttribute('aria-hidden', 'true')
+  button.append(wave)
+  wave.addEventListener('animationend', () => wave.remove(), { once: true })
+  window.setTimeout(() => wave.remove(), 450)
+}
+
+export function useLayoutSize(key: string, initial: number, min: number, max: number) {
+  const clamp = (n: number) => Math.min(max, Math.max(min, n))
+  const [value, set] = useState(() => {
+    try {
+      const saved = localStorage.getItem(key)
+      if (saved && Number.isFinite(Number(saved))) return clamp(Number(saved))
+    } catch { /* Use the default when storage is unavailable. */ }
+    return initial
+  })
+  function update(next: number, persist: boolean) {
+    next = clamp(Math.round(next))
+    set(next)
+    if (persist) {
+      try { localStorage.setItem(key, String(next)) } catch { /* Keep the session preference. */ }
+    }
+  }
+  return { value, min, max, update }
+}
+
+export function Divider({ label, size, percent = false }: { label: string; size: ReturnType<typeof useLayoutSize>; percent?: boolean }) {
+  function position(event: PointerEvent<HTMLDivElement>, persist: boolean) {
+    const rect = event.currentTarget.parentElement!.getBoundingClientRect()
+    if (rect.width) size.update((event.clientX - rect.left) * (percent ? 100 / rect.width : 1), persist)
+  }
+  return <div className="sizeDivider" tabIndex={0} role="separator" aria-label={label} aria-orientation="vertical"
+    aria-valuemin={size.min} aria-valuemax={size.max} aria-valuenow={size.value} aria-valuetext={size.value + (percent ? '%' : ' 像素')}
+    onPointerDown={e => { if (e.button === 0) { e.preventDefault(); e.currentTarget.setPointerCapture(e.pointerId) } }}
+    onPointerMove={e => { if (e.currentTarget.hasPointerCapture(e.pointerId)) position(e, false) }}
+    onPointerUp={e => { if (e.currentTarget.hasPointerCapture(e.pointerId)) position(e, true) }}
+    onKeyDown={e => {
+      if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return
+      e.preventDefault()
+      size.update(size.value + (e.key === 'ArrowLeft' ? -1 : 1) * (percent ? 2 : 12), true)
+    }} />
+}

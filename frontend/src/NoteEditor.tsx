@@ -1,4 +1,6 @@
 import { Children, isValidElement, useState, type ReactNode } from 'react'
+import { Popconfirm } from 'antd'
+import { ripple } from './ReadingControls'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
@@ -18,11 +20,11 @@ export function MarkdownPreview({ text }: { text: string }) {
 }
 function Fold({ title, info, children, defaultOpen = false }: { title: string; info: string; children: ReactNode; defaultOpen?: boolean }) {
   const [open, setOpen] = useState(defaultOpen)
-  return <section className="noteSection"><button className="foldHeading" aria-expanded={open} onClick={() => setOpen(!open)}><strong>{title}</strong><small>{info}</small><span aria-hidden="true">{open ? '▾' : '▸'}</span></button><div hidden={!open}>{children}</div></section>
+  return <section className="noteSection"><button className="foldHeading" aria-expanded={open} onClick={e => { ripple(e); setOpen(!open) }}><strong>{title}</strong><small>{info}</small><span aria-hidden="true">{open ? '▾' : '▸'}</span></button><div className="foldBody" data-open={open} inert={!open} aria-hidden={!open}><div className="foldClip"><div className="foldContent">{children}</div></div></div></section>
 }
 function Field({ label, value, onChange, onSave, readOnly = false }: { label: string; value: string; onChange: (value: string) => void; onSave: () => void; readOnly?: boolean }) {
   const [preview, setPreview] = useState(false)
-  return <div className="markdownField"><div className="fieldHeading"><label>{label}</label><button aria-label={`${label}${preview ? '编辑' : '预览'}`} aria-pressed={preview} onClick={() => setPreview(!preview)}>{preview ? '编辑' : '预览'}</button></div>{preview ? <MarkdownPreview text={value} /> : <textarea aria-label={label} readOnly={readOnly} value={value} placeholder="支持 Markdown、表格和代码块…" onChange={event => onChange(event.target.value)} onKeyDown={event => { if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 's') { event.preventDefault(); onSave() } }} />}</div>
+  return <div className="markdownField"><div className="fieldHeading"><label>{label === 'AI 总结' ? '可粘贴 AI 总结' : label === '个人笔记' ? '在这里写下你的笔记' : label}</label><button aria-label={`${label}${preview ? '编辑' : '预览'}`} aria-pressed={preview} onClick={() => setPreview(!preview)}>{preview ? '编辑' : '预览'}</button></div>{preview ? <MarkdownPreview text={value} /> : <textarea aria-label={label} readOnly={readOnly} value={value} placeholder="支持Markdown样式" onChange={event => onChange(event.target.value)} onKeyDown={event => { if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 's') { event.preventDefault(); onSave() } }} />}</div>
 }
 function SaveState({ entry, store, label }: { entry: Entry; store: DraftStore; label: string }) {
   const dirty = store.dirty(entry)
@@ -36,9 +38,13 @@ export function NoteEditor({ page, store }: { page: Page; store: DraftStore }) {
   const qa = entries.filter(entry => entry.kind === 'qa' && (!entry.value.deleted || store.dirty(entry) || entry.pending || entry.conflict || entry.error))
   if (!note || !summary) return null
   return <div className="notePanel" aria-label={`第 ${page.number} 页笔记`}>
-    <Fold defaultOpen title="AI 解释与总结" info={summary.value.summary ? '已有内容' : '暂无内容'}><p className="sectionHint">手动整理或粘贴 AI 总结</p><Field readOnly={summary.missing} label="AI 总结" value={summary.value.summary ?? ''} onChange={text => store.edit(summary, { summary: text })} onSave={() => void store.save(summary)} /><SaveState entry={summary} store={store} label="总结" /></Fold>
+    <Fold defaultOpen title="AI 解释与总结" info={summary.value.summary ? '已有内容' : '暂无内容'}><Field readOnly={summary.missing} label="AI 总结" value={summary.value.summary ?? ''} onChange={text => store.edit(summary, { summary: text })} onSave={() => void store.save(summary)} /><SaveState entry={summary} store={store} label="总结" /></Fold>
     <Fold title="个人笔记" info={note.value.note ? '已有内容' : '暂无内容'}><Field readOnly={note.missing} label="个人笔记" value={note.value.note ?? ''} onChange={text => store.edit(note, { note: text })} onSave={() => void store.save(note)} /><SaveState entry={note} store={store} label="笔记" /></Fold>
-    <Fold title="追问与 AI 解答" info={`${qa.filter(entry => !entry.value.deleted).length} 条问答`}>{qa.map((entry, index) => <div className="qaEntry" key={entry.id}><div className="qaHeading"><strong>问答 {index + 1}</strong><button disabled={!!entry.value.deleted || !!entry.conflict || entry.missing} onClick={() => { if (window.confirm('删除这条问答及其草稿？')) store.edit(entry, { ...entry.value, deleted: true }) }}>删除问答</button></div>{entry.value.deleted && <p>正在删除；失败时可重试。</p>}<Field readOnly={!!entry.value.deleted || entry.missing} label={`问题 ${index + 1}`} value={entry.value.question ?? ''} onChange={question => store.edit(entry, { ...entry.value, question })} onSave={() => void store.save(entry)} /><Field readOnly={!!entry.value.deleted || entry.missing} label={`回答 ${index + 1}`} value={entry.value.answer ?? ''} onChange={answer => store.edit(entry, { ...entry.value, answer })} onSave={() => void store.save(entry)} /><SaveState entry={entry} store={store} label="问答" /></div>)}<button className="addQA" onClick={() => { const entry = store.add(page.id, 'qa', crypto.randomUUID().replaceAll('-', ''), { question: '', answer: '', deleted: false }, 0); store.edit(entry, entry.value) }}>＋ 添加问答</button></Fold>
+    <Fold title="追问与 AI 解答" info={`${qa.filter(entry => !entry.value.deleted).length} 条问答`}>{qa.map((entry, index) => <div className="qaEntry" key={entry.id}><div className="qaHeading"><strong>问答 {index + 1}</strong><Popconfirm title="确定删除本问答？" okText="删除" cancelText="取消" trigger={['hover', 'click']}
+      disabled={!!entry.value.deleted || !!entry.conflict || entry.missing} onConfirm={() => store.edit(entry, { ...entry.value, deleted: true })}>
+      <button aria-label="删除问答" disabled={!!entry.value.deleted || !!entry.conflict || entry.missing}>
+        <svg aria-hidden="true" width="16" viewBox="0 0 24 24" stroke="currentColor" fill="none" strokeWidth="1.7"><path d="M3 6h18M9 6V3h6v3M6 6l1 15h10l1-15M10 9v8m4-8v8" /></svg>
+      </button></Popconfirm></div>{entry.value.deleted && <p>正在删除；失败时可重试。</p>}<Field readOnly={!!entry.value.deleted || entry.missing} label={`问题 ${index + 1}`} value={entry.value.question ?? ''} onChange={question => store.edit(entry, { ...entry.value, question })} onSave={() => void store.save(entry)} /><Field readOnly={!!entry.value.deleted || entry.missing} label={`回答 ${index + 1}`} value={entry.value.answer ?? ''} onChange={answer => store.edit(entry, { ...entry.value, answer })} onSave={() => void store.save(entry)} /><SaveState entry={entry} store={store} label="问答" /></div>)}<button className="addQA" onClick={() => { const entry = store.add(page.id, 'qa', crypto.randomUUID().replaceAll('-', ''), { question: '', answer: '', deleted: false }, 0); store.edit(entry, entry.value) }}>＋ 添加问答</button></Fold>
   </div>
 }
 

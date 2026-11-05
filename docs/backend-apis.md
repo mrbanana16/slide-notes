@@ -1,6 +1,6 @@
 # 后端接口列表
 
-最后更新：2026-11-05（阶段 5.1，人工验收通过）。本文件描述当前实现，每次阶段或迭代开发完成后更新。
+最后更新：2026-11-05（阶段 5.2，接口已核对）。本文件描述当前实现，每次阶段或迭代开发完成后更新。
 
 ## 请求约定与实现位置
 
@@ -35,7 +35,7 @@
 |---|---|---|---|---|
 | GET | `/api/directory` | `directory` | 查询完整结构；无请求体 | 200：目录快照；500：存储错误 |
 | POST | `/api/courses` | `create_course` | JSON `{revision, name}`；新课程追加末尾 | 201：新快照；400：版本／名称类型或长度非法；409：旧版本 |
-| POST | `/api/chapters` | `create_chapter` | JSON `{revision, name, course_id}`；追加到课程末尾 | 201：新快照；400：名称／课程／版本非法；409：旧版本 |
+| POST | `/api/chapters` | `create_chapter` | 目录「＋」及导入弹窗章节下拉共用；JSON `{revision, name, course_id}`；追加到课程末尾 | 201：新快照；400：名称／课程／版本非法；409：旧版本 |
 | PATCH | `/api/courses/{id}` | `rename` | JSON `{revision, name}`；系统“未分类”不能改名 | 200：新快照；400：非法参数或系统分类；404：不存在；409：旧版本 |
 | PATCH | `/api/chapters/{id}` | `rename` | JSON `{revision, name}`；不修改课程归属 | 同上 |
 | PATCH | `/api/materials/{id}` | `rename` | JSON `{revision, filename}`；仅修改显示名称，不改原文件 | 同上 |
