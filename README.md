@@ -6,7 +6,7 @@
 
 完整范围与阶段验收标准见 [PLAN.md](PLAN.md)，开发协作规则见 [AGENTS.md](AGENTS.md)。
 
-开发记录、自动化验证与人工验收清单按阶段维护在 [docs/devlog](docs/devlog/)，参见 [阶段一开发与验收记录](docs/devlog/step1-minimal-workflow.md)、[阶段二开发与验收记录](docs/devlog/step2-complete-notes.md)、[阶段三开发与验收记录](docs/devlog/step3-course-structure.md) 和 [阶段四开发与验收记录](docs/devlog/step4-reading-modes.md)。
+开发记录、自动化验证与人工验收清单按阶段维护在 [docs/devlog](docs/devlog/)，参见 [阶段一开发与验收记录](docs/devlog/step1-minimal-workflow.md)、[阶段二开发与验收记录](docs/devlog/step2-complete-notes.md)、[阶段三开发与验收记录](docs/devlog/step3-course-structure.md)、[阶段四开发与验收记录](docs/devlog/step4-reading-modes.md) 和 [阶段五开发与验收记录](docs/devlog/step5-ui-redesign.md)。
 
 阶段一至四已通过人工验收；三模式与页面取舍的开发及验证记录见阶段四记录。
 
@@ -24,33 +24,30 @@ npm --prefix frontend ci
 
 ### 使用 PyCharm 等 IDE 启动
 
-先完成上方依赖安装，再用 PyCharm 打开项目根目录。项目已提供三份共享运行配置：
+先完成上方 Python 虚拟环境创建和后端依赖安装，再用 PyCharm 打开项目根目录。项目仅保留一份共享运行配置 [`run`](.run/run.run.xml)，每次启动依次执行 `npm ci` → `npm run build` → `backend/run.py`，无需单独安装或构建前端。
 
-| 运行配置 | 配置文件 | 作用 |
-|---|---|---|
-| `frontend_ci` | [.run/frontend_ci.run.xml](.run/frontend_ci.run.xml) | 使用项目 Node.js 执行 `npm ci`，按锁文件安装前端依赖，不构建或启动服务 |
-| `frontend_build` | [.run/frontend_build.run.xml](.run/frontend_build.run.xml) | 使用项目 Node.js 运行 `frontend/package.json` 中的 `build`，生成前端静态资源 |
-| `backend_run` | [.run/backend_run.run.xml](.run/backend_run.run.xml) | 使用 `Python 3.11 (slide-notes)` 解释器运行 `backend/run.py`，启动 Waitress |
+1. 确认 `run` 的 `Python 3.11 (slide-notes)` 解释器指向本项目的 `backend/.venv/bin/python`；重建虚拟环境后，需在 IDE 中重新关联解释器。Python 依赖仍须按上方命令安装，前置任务不负责安装 Python 依赖。
+2. 在 IDE 的 JavaScript Runtime 设置中确认项目默认 Node.js 为 22.13+。两个 npm 前置任务均使用 `project` 运行时和 `frontend/package.json`，不能仅依赖终端 PATH。
+3. 停止旧后端或占用 `5001` 端口的进程，选择 `run` 并启动。等待 `npm ci` 和 `npm run build` 依次成功退出后，IDE 才启动 Python 后端；任一前置任务失败时，应先解决错误再重新运行。
+4. 后端成功绑定端口后，自动调用系统默认浏览器打开 <http://127.0.0.1:5001>。如果浏览器未能自动打开，控制台会提示手动访问地址，后端继续运行。停止服务使用 IDE 的 Stop 按钮。前端或后端代码更新后，停止当前服务并重新运行 `run`，再刷新页面，以加载新构建和新后端。
 
-1. 确认后端配置的 Python 解释器指向本项目的 `backend/.venv/bin/python`；重建虚拟环境后，需在 IDE 中重新关联解释器。
-2. 确认前端配置的 `project` Node.js 解释器已设置为 Node.js 22.13+。首次导入项目后，在 IDE 的 JavaScript Runtime 设置中确认项目默认 Node.js，不能仅依赖终端 PATH。
-3. 首次安装或依赖锁文件变化后先运行 `frontend_ci`，等待安装结束；再运行 `frontend_build`，等待成功退出，再运行 `backend_run`。三份配置没有自动串联；前端代码变化后需重新构建，后端代码变化后需重启后端。
-4. 打开 <http://127.0.0.1:5001>。停止服务使用 IDE 的 Stop 按钮。
+旧的 `frontend_ci`、`frontend_build` 配置已删除，旧后端配置 `backend_run` 已由 `run` 替代；如 IDE 仍显示旧项，请移除旧项并选择共享配置 `run`。前端构建仅生成静态资源，不启动 Vite 开发服务器；日常页面由 Python 后端提供。
 
-后端成功绑定端口后，Run 控制台会输出访问地址和数据目录；请求日志包含方法、路径、状态码及耗时，异常另有诊断信息。后端修改后应停止旧进程并重新运行 `backend_run`。
+`npm ci` 每次按锁文件重装前端依赖。请使用当前用户执行 npm；若曾以 root 安装导致 `node_modules` 权限不足，先修复该目录的所有权，再重新启动，不要用 `sudo npm ci` 绕过问题。
 
-（`frontend_build` 只构建，不会启动 Vite 开发服务器）
+后端成功绑定端口后，Run 控制台会输出访问地址和数据目录；请求日志包含方法、路径、状态码及耗时，异常另有诊断信息。
 
 ### 使用命令启动
 
-先构建前端，再运行本机服务：
+在项目根目录依次安装前端依赖、构建前端，再启动本机服务；每条命令成功退出后再执行下一条：
 
 ```sh
+npm --prefix frontend ci
 npm --prefix frontend run build
 backend/.venv/bin/python backend/run.py
 ```
 
-打开 <http://127.0.0.1:5001>。服务仅监听本机，使用 Waitress，不启用 Flask 调试模式。每次启动自动执行尚未应用的 Alembic 迁移；当前最新迁移为 `0006`：在原有课程结构上为每页新增分类、显示状态及独立属性版本；旧页默认为正文／正常，保留页面 ID、笔记、总结和问答。升级本轮代码须重新构建前端，并停止旧后端后重启，单独构建不会更新运行中的后端。按 `Ctrl+C` 停止后，用同一命令重启，课件与已保存笔记仍在。
+后端成功绑定端口后自动调用系统默认浏览器打开 <http://127.0.0.1:5001>，也可手动访问。服务仅监听本机，使用 Waitress，不启用 Flask 调试模式。每次启动自动执行尚未应用的 Alembic 迁移；当前最新迁移为 `0006`：在原有课程结构上为每页新增分类、显示状态及独立属性版本；旧页默认为正文／正常，保留页面 ID、笔记、总结和问答。升级本轮代码须重新构建前端，并停止旧后端后重启，单独构建不会更新运行中的后端。按 `Ctrl+C` 停止后，用同一命令重启，课件与已保存笔记仍在。
 
 启动后终端会显示访问地址与数据目录，操作时会输出请求日志。后端代码修改后，先停止旧进程，再执行同一启动命令。
 
@@ -64,7 +61,7 @@ backend/.venv/bin/python backend/run.py
 npm --prefix frontend run dev
 ```
 
-开发界面地址以 Vite 输出为准。
+开发界面地址以 Vite 输出为准；后端启动自动打开的是 `5001` 页面，需要联调 Vite 时请手动访问 Vite 输出的地址。
 
 ## 课程与章节
 
@@ -82,7 +79,7 @@ npm --prefix frontend run dev
 
 支持无需输入打开密码即可阅读的 PDF，包括内部带加密标记但可用空密码读取的课件。需要打开密码的文件须先解除密码保护再导入。系统保留上传文件的原始内容。重复导入按文件内容识别，提示已有课件位置并保留笔记；即使改名也不会重复创建。同名但内容不同的文件仍可独立导入。
 
-现阶段页面及应用内弹窗、表单统一使用浅色设计，不随系统深色模式变化；完整主题适配安排在开发计划阶段 5。
+目录底部的「系统设置」可选择浅色、深色或跟随系统，选择会保存在当前浏览器。PDF 页面保留原色。打开设置会检测后端，也可点「刷新」重新检测。面板底部列出前端构建时间和后端启动时间，便于判断当前打开的版本。
 
 ## 逐页笔记
 
@@ -124,6 +121,6 @@ PDF.js worker、中文字体映射、标准字体和 WASM 资源随构建产物�
 
 ## 清空全部数据
 
-为方便测试，目录底部提供「清空全部数据」。点击后需再次确认，才会删除所有普通课程、章节、课件、原始 PDF、已保存笔记和当前窗口草稿，重建空数据库并清理上传临时文件，返回仅含固定「未分类」的初始页面。该操作无法撤销；取消确认不会删除数据。下载目录中的源文件不受影响。
+为方便测试，从目录底部打开「系统设置」，选择「清空全部数据」。点击后需再次确认，才会删除所有普通课程、章节、课件、原始 PDF、已保存笔记和当前窗口草稿，重建空数据库并清理上传临时文件，返回仅含固定「未分类」的初始页面。该操作无法撤销；取消确认不会删除数据。下载目录中的源文件不受影响。
 
 清空期间暂停当前窗口导入，完成后可以重新导入课件。其他已打开的标签页请刷新，旧页面保存会因记录已删除而失败。清空只处理系统管理的数据库及 `materials/`、`tmp/`，不会删除数据目录中的无关文件。

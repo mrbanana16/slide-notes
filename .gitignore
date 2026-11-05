@@ -49,3 +49,5 @@ build/
 *.log
 playwright-report/
 test-results/
+
+/slide-notes.code-workspace

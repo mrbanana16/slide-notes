@@ -3,9 +3,10 @@ import react from '@vitejs/plugin-react'
 import { cpSync, mkdirSync } from 'node:fs'
 
 export default defineConfig({
+  define: { __BUILD_TIME__: JSON.stringify(new Date().toISOString()) },
   plugins: [react(), {
     name: 'local-pdf-assets',
-    closeBundle() {
+    writeBundle() {
       for (const directory of ['cmaps', 'standard_fonts', 'wasm']) {
         mkdirSync(`dist/pdf/${directory}`, { recursive: true })
         cpSync(`node_modules/pdfjs-dist/${directory}`, `dist/pdf/${directory}`, { recursive: true })

@@ -1,6 +1,6 @@
 # 后端接口列表
 
-最后更新：2026-11-04（阶段四，用户确认验收通过）。本文件描述当前实现，每次阶段或迭代开发完成后更新。
+最后更新：2026-11-05（阶段 5.1，人工验收通过）。本文件描述当前实现，每次阶段或迭代开发完成后更新。
 
 ## 请求约定与实现位置
 
@@ -78,7 +78,7 @@
 
 ## IDE 启动入口
 
-PyCharm 共享配置为 [.run/backend_run.run.xml](../.run/backend_run.run.xml)，使用项目虚拟环境运行 `backend/run.py`，提供上述 `127.0.0.1:5001` 服务。依赖变化时先运行 `frontend_ci`，再运行 `frontend_build` 构建页面，最后运行 `backend_run`；三份配置没有自动串联。IDE 设置及其下方保留的命令方式见 [README 本地运行](../README.md#本地运行)。现有配置已由工作区改为上述名称，本轮未修改配置；命令及端口未变更。升级本轮代码时需要重新构建前端并停止旧后端后重启，启动自动执行尚未应用的迁移（当前 `0006`，为旧页新增正文／正常属性及独立版本）；本轮无新增依赖，已安装阶段三依赖时无需重新安装。
+PyCharm 仅保留共享配置 [`run`](../.run/run.run.xml)，使用项目 Node.js 依次执行 `frontend/package.json` 的 `npm ci`、`npm run build`，两项成功后使用项目 Python 虚拟环境运行 `backend/run.py`，提供上述 `127.0.0.1:5001` 服务。旧 `frontend_ci`、`frontend_build` 已删除，旧 `backend_run` 已替换为 `run`；请停用旧配置和旧进程，重新运行 `run` 并刷新页面。代码更新后同样需停止当前服务并重新运行；单独构建前端不会更新运行中的后端。脚本路径、解释器要求、环境变量、端口及命令方式不变，Python 依赖仍需单独安装。IDE 设置及等效命令见 [README 本地运行](../README.md#本地运行)。启动自动执行尚未应用的迁移（当前 `0006`，为旧页新增正文／正常属性及独立版本）。后端成功绑定端口后通过 Python 标准库 `webbrowser` 调用系统默认浏览器打开首页，IDE 与命令启动均生效；绑定失败不调用浏览器，浏览器调用失败记录警告并继续提供服务。页面、静态资源路由和业务接口未变更。
 
 ## 控制台诊断日志
 
@@ -90,6 +90,7 @@ PyCharm 共享配置为 [.run/backend_run.run.xml](../.run/backend_run.run.xml)�
 
 | 方法 | 请求链接（默认本机地址） | 处理函数 | 接口作用 | 前端调用位置 |
 |---|---|---|---|---|
+| GET | [运行状态](http://127.0.0.1:5001/api/status) | `runtime_status` | 检测服务并返回本次启动时间 | `SystemSettings.tsx` |
 | GET | [http://127.0.0.1:5001/api/materials](http://127.0.0.1:5001/api/materials) | `list_materials` | 查询所有课件，按课程 ID、章节 ID、位置、ID 返回扁平列表；界面目录以 `/api/directory` 为准 | [App.tsx](../frontend/src/App.tsx) （兼容查询；当前界面使用 `/api/directory`） |
 | POST | [http://127.0.0.1:5001/api/materials](http://127.0.0.1:5001/api/materials) | `upload` | 按内容识别重复文件；重复时返回已有课件，否则校验并创建课件及每页笔记记录 | [App.tsx](../frontend/src/App.tsx) 的 `upload` |
 | GET | `http://127.0.0.1:5001/api/materials/{material_id}/pages` | `pages` | 按原始页码查询页面、总结、个人笔记与未删除问答 | [App.tsx](../frontend/src/App.tsx) 的课件加载 effect |
@@ -268,3 +269,7 @@ PyCharm 共享配置为 [.run/backend_run.run.xml](../.run/backend_run.run.xml)�
 Flask 会为 GET 路由提供标准 HEAD 行为，并默认提供 OPTIONS 响应。后端为 `.mjs` 显式设置 `text/javascript`，不依赖 Windows 与 macOS 不同的本机 MIME 映射；PDF.js worker 可被浏览器按模块脚本加载。开发环境页面和 PDF 辅助资源由 Vite 提供，配置位置为 [vite.config.ts](../frontend/vite.config.ts)。
 
 页面分类及显示状态通过下述属性接口保存；模式／阅读布局／筛选／临时展开由前端管理，没有对应写接口。前端页面对应关系见 [前端页面列表](frontend-pages.md)，验证步骤见 [阶段四开发与验收记录](devlog/step4-reading-modes.md)。
+
+### GET /api/status
+
+处理函数位于 `backend/slide_notes/__init__.py`。无参数或请求体。成功返回 200，例如 `{"status":"ok","started_at":"2026-11-05T02:00:00.000000+00:00"}`，响应禁止缓存。启动时间为本次应用实例创建时的 UTC 时间，刷新查询时保持一致。该接口只报告服务是否能够响应。后端离线时可能没有 HTTP 响应；前端将连接失败、超时、非成功响应或无效响应显示为检测失败，允许手动重试。

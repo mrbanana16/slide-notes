@@ -1,6 +1,6 @@
 # 前端页面列表
 
-最后更新：2026-11-04（阶段四，用户确认验收通过）。仅列当前实现。
+最后更新：2026-11-05（阶段 5.1，人工验收通过）。仅列当前实现。
 
 ## 页面与页面内状态
 
@@ -26,7 +26,8 @@
 | 个人笔记区 | 每页右侧第二个独立折叠区 | Markdown 编辑与预览，保留阶段一已有笔记 | `NoteEditor.tsx` | PUT `/api/pages/{page_id}/note` |
 | 追问与 AI 解答区 | 每页右侧第三个独立折叠区；标题显示问答数 | 添加多条问答，分别编辑／预览问题与回答，确认后删除 | `NoteEditor.tsx` | PUT `/api/pages/{page_id}/qa/{entry_id}` |
 | 保存失败／版本冲突状态 | 网络错误、服务错误或多窗口版本冲突 | 保留输入，重试；对比服务器内容后选择使用服务器版本或以草稿重新保存（均需确认） | `drafts.ts`、`NoteEditor.tsx` | 对应 PUT；冲突响应携带 `current` |
-| 清空全部数据确认 | 目录底部按钮触发浏览器确认框 | 取消或确认删除；成功回到首次使用状态 | `App.tsx`、`drafts.ts` | POST `/api/reset` |
+| 系统设置 | 在 `/` 内从目录底部打开 Ant Design 弹窗 | 选择并记住显示模式，打开或刷新时检测后端；查看本地时间的构建和启动时刻 | `SystemSettings.tsx`、`theme.tsx` | GET `/api/status` |
+| 清空全部数据确认 | 整理模式中，系统设置内的按钮打开二次确认弹窗；复习模式禁用，悬停或键盘聚焦可查看原因 | 取消或确认删除；成功回到首次使用状态 | `App.tsx`、`drafts.ts` | POST `/api/reset` |
 
 以上源码路径均相对项目根目录，前端文件均位于 `frontend/src/`。API 请求封装在 `api.ts`，样式在 `styles.css`。
 
@@ -54,11 +55,11 @@
 
 ## 界面主题
 
-当前统一浅色：`frontend/index.html` 声明 `color-scheme: light`，`styles.css` 根元素声明 `only light`，弹窗显式设置白色表面和正文颜色，表单使用浅色控件。应用内导入／转移弹窗不随系统主题变黑。完整浅色／深色主题专项实现列入 `PLAN.md` 阶段 5，当前未实现。
+默认跟随系统；手动选择浅色或深色后固定该模式。工作台与弹窗共用主题，PDF 页面保留原色。首屏在加载工作台前读取主题。切换时工作台和设置弹窗共同淡化；减少动态效果或缺少视图过渡支持时直接切换。
 
 ## 构建与启动
 
-PyCharm：按 README 安装更新后的依赖，停止旧 `run backend`／`backend_run` → 运行 `frontend_ci` → `frontend_build` → `backend_run` → 刷新 <http://127.0.0.1:5001/>。工作区现有 IDE 配置名为 `frontend_ci`、`frontend_build`、`backend_run`，分别执行安装、构建、服务启动，无自动串联；脚本路径、解释器要求和端口未变，后端启动自动迁移到 `0006`，旧页面新增正文／正常的属性默认值，原 ID 与笔记保持。依赖已安装则无需重新运行 `frontend_ci`；本轮须重新构建前端、停止旧后端后重启。
+PyCharm：完成 Python 环境安装并确认项目 Node.js 后，停止旧后端／旧 Vite，选择唯一共享配置 [`run`](../.run/run.run.xml)。每次启动自动依次安装前端依赖（`npm ci`）、构建（`npm run build`）、启动 `backend/run.py`；前置任务成功结束后才启动后端。后端成功绑定端口后自动调用系统默认浏览器打开 <http://127.0.0.1:5001/>；浏览器调用失败仅记录提示，可手动访问，后端继续运行。IDE 和命令方式均有此行为。旧 `frontend_ci`、`frontend_build` 已删除，旧 `backend_run` 已替换为 `run`，请停用 IDE 中残留的旧配置。代码更新后停止服务并重新运行 `run`，再刷新页面；构建本身不启动 Vite 服务。后端启动自动迁移到 `0006`，原页面 ID 与笔记保持。
 
 命令方式（项目根目录）：
 
@@ -68,7 +69,7 @@ npm --prefix frontend run build
 backend/.venv/bin/python backend/run.py
 ```
 
-接口详情见 [后端接口列表](backend-apis.md)，具体人工步骤见 [阶段四记录](devlog/step4-reading-modes.md)。
+接口详情见 [后端接口列表](backend-apis.md)，当前启动与主题人工验收步骤见 [阶段五记录](devlog/step5-ui-redesign.md)。
 
 ## 阅读位置与只读边界
 

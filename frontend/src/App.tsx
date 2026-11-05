@@ -8,11 +8,15 @@ import { DraftStore } from './drafts'
 import { Directory } from './Directory'
 import { ImportDialog } from './ImportDialog'
 import { materialPath } from './directoryOrder'
+import { WorkspaceTheme, useDisplayMode } from './theme'
+import { SystemSettings } from './SystemSettings'
 import './styles.css'
 
 GlobalWorkerOptions.workerSrc = workerUrl
 
 export default function App() {
+  const { mode: displayMode, selectMode } = useDisplayMode()
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const [directory, setDirectory] = useState<DirectoryData>({ revision: 0, courses: [], chapters: [], materials: [] })
   const materials = directory.materials
   const [directoryBusy, setDirectoryBusy] = useState(false)
@@ -168,7 +172,6 @@ export default function App() {
 
   async function resetAllData() {
     if (operation.current || readOnly) return
-    if (!window.confirm('清空全部数据？所有课件、原始 PDF、已保存笔记和当前未保存内容都将永久删除，无法撤销。系统“未分类”保留为空分类。')) return
     operation.current = true
     store.pause(true)
     loadGeneration.current += 1
@@ -194,11 +197,11 @@ export default function App() {
     } finally { operation.current = false; store.pause(false); setResetting(false) }
   }
 
-  return <div className={`workspace ${sidebar && mode !== 'immerse' ? '' : 'sidebarClosed'}`}>
+  return <WorkspaceTheme mode={displayMode}><div className={`workspace ${sidebar && mode !== 'immerse' ? '' : 'sidebarClosed'}`}>
     <aside className="sidebar" aria-label="课件目录">
       <div className="brand"><span className="brandMark" aria-hidden="true">页</span><div><strong>slide-notes</strong><small>把理解留在每一页</small></div></div>
       <Directory readOnly={readOnly} data={directory} selected={selected?.id} busy={loading || uploading || resetting || directoryBusy} onSelect={setSelected} mutate={mutateDirectory} onDelete={deleteMaterial} />
-      <div className="sidebarBottom"><button className="primary" disabled={readOnly || uploading || resetting || directoryBusy || loading} onClick={() => prepareImport()}>{uploading ? '正在导入…' : '＋ 导入 PDF'}</button><p>课件与笔记保存在本机</p><button className="dangerButton" disabled={readOnly || uploading || resetting || directoryBusy || loading} onClick={() => void resetAllData()}>{resetting ? '正在清空…' : '清空全部数据'}</button></div>
+      <div className="sidebarBottom"><button className="primary" disabled={readOnly || uploading || resetting || directoryBusy || loading} onClick={() => prepareImport()}>{uploading ? '正在导入…' : '＋ 导入 PDF'}</button><p>课件与笔记保存在本机</p><button onClick={() => setSettingsOpen(true)}>系统设置</button></div>
     </aside>
     <header className="toolbar"><button disabled={mode === 'immerse'} className="sidebarToggle" aria-label={sidebar ? '收起目录' : '展开目录'} onClick={() => setSidebar(value => !value)}>☰</button><div className="breadcrumb">{selected ? <><span>{directory.courses.find(c => c.id === selected.course_id)?.name}{selected.chapter_id ? ` / ${directory.chapters.find(c => c.id === selected.chapter_id)?.name}` : ''} /</span> <strong>{selected.filename}</strong></> : <strong>学习工作台</strong>}</div><div className="modeSwitcher" aria-label="工作模式">{([['organize', '整理'], ['review', '复习'], ['immerse', '沉浸整理']] as const).map(([value, label]) => <button key={value} aria-pressed={mode === value} disabled={uploading || resetting || directoryBusy || importOpen} onClick={() => setMode(value)}>{label}</button>)}</div><span className="globalStatus" role="status">{dirtyCount ? `${dirtyCount} 页未保存` : '所有笔记已保存'}</span></header>
     <main ref={reader} className="reader" onDragOver={event => { event.preventDefault(); if (!readOnly) setDragging(true) }} onDragLeave={event => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setDragging(false) }} onDrop={event => { event.preventDefault(); setDragging(false); if (!readOnly) prepareImport(event.dataTransfer.files[0]) }}>
@@ -214,5 +217,8 @@ export default function App() {
     </main>
     {importOpen && <ImportDialog directory={directory} course={importCourse || directory.courses[0]?.id || ''} chapter={importChapter} file={importFile} busy={uploading || directoryBusy || loading} error={error} duplicate={duplicate?.path} onOpenExisting={() => void openExisting()} onCourse={id => { setImportCourse(id); setImportChapter('') }} onChapter={setImportChapter} onFile={file => { setImportFile(file); setDuplicate(null); setError('') }} onReload={() => { void loadMaterials(); setImportCourse(''); setImportChapter('') }} onClose={() => setImportOpen(false)} onSubmit={() => void upload(importFile ?? undefined)} onCreate={name => mutateDirectory('/api/courses', 'POST', { name })} />}
 
-  </div>
+    {settingsOpen && <SystemSettings readOnly={readOnly} mode={displayMode} selectMode={selectMode} onClose={() => setSettingsOpen(false)}
+      canReset={!readOnly && !uploading && !resetting && !directoryBusy && !loading}
+      onReset={() => { setSettingsOpen(false); void resetAllData() }} />}
+  </div></WorkspaceTheme>
 }

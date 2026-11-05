@@ -45,7 +45,7 @@ it('retains input after network failure and allows retry', async () => {
   fireEvent.click(screen.getByText('保存笔记'))
   await screen.findByText('网络断开')
   const style = document.createElement('style'); style.textContent = styles; document.head.append(style)
-  expect(getComputedStyle(screen.getByText('保存失败')).color).toBe('rgb(165, 42, 52)')
+  expect(getComputedStyle(screen.getByText('保存失败')).color).toBe('var(--negative)')
   style.remove()
   expect(localStorage.length).toBe(1)
   fireEvent.click(screen.getByText('重试保存'))
@@ -164,7 +164,7 @@ it('labels and colors language code blocks while keeping plain, unknown, and inl
   expect(container.querySelector('p > code')?.textContent).toBe('code')
   const style = document.createElement('style'); style.textContent = styles; document.head.append(style)
   const keyword = container.querySelector('.hljs-keyword')!, string = container.querySelector('.hljs-string')!
-  expect(getComputedStyle(keyword).color).toBe('rgb(23, 78, 166)')
-  expect(getComputedStyle(string).color).toBe('rgb(35, 122, 87)')
+  expect(getComputedStyle(keyword).color).toBe('var(--code-keyword)')
+  expect(getComputedStyle(string).color).toBe('var(--positive)')
   style.remove()
 })

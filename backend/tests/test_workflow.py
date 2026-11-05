@@ -1,3 +1,4 @@
+from datetime import datetime
 from io import BytesIO
 from pathlib import Path
 
@@ -179,3 +180,13 @@ def test_request_and_pdf_diagnostic_logs(app, caplog):
     assert upload(client).status_code == 201
     assert 'PDF imported:' in caplog.text
     assert 'pages=3' in caplog.text
+
+def test_runtime_status_reports_one_timezone_aware_start_time(app):
+    client = app.test_client()
+    response = client.get("/api/status")
+    assert response.status_code == 200
+    assert response.cache_control.no_store
+    data = response.get_json()
+    assert data["status"] == "ok"
+    assert datetime.fromisoformat(data["started_at"]).utcoffset() is not None
+    assert client.get("/api/status").get_json() == data

@@ -1,5 +1,21 @@
 <!doctype html>
 <html lang="zh-CN">
-  <head><meta name="color-scheme" content="light" /><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" /><title>课件笔记</title></head>
-  <body><div id="root"></div><script type="module" src="/src/main.tsx"></script></body>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>课件笔记</title>
+    <style>
+      :root { color-scheme: light; background-color: #f5f7fa; }
+      :root[data-theme="dark"] { color-scheme: dark; background-color: #1b2028; }
+    </style>
+    <script>
+      let displayMode
+      try { displayMode = localStorage.getItem('slide-notes:display-mode') } catch {}
+      const dark = displayMode === 'dark' ||
+        (displayMode !== 'light' && window.matchMedia('(prefers-color-scheme: dark)').matches)
+      document.documentElement.dataset.theme = dark ? 'dark' : 'light'
+    </script>
+  </head>
+  <body><div id="root"></div><div id="app-overlays"></div><script type="module" src="/src/main.tsx"></script></body>
 </html>

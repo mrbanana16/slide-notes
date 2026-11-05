@@ -2,6 +2,7 @@ import logging
 import os
 import re
 import shutil
+from datetime import datetime, timezone
 from pathlib import Path
 from threading import RLock
 from time import perf_counter
@@ -23,6 +24,7 @@ BACKEND = Path(__file__).resolve().parents[1]
 
 
 def create_app(data_dir=None):
+    started_at = datetime.now(timezone.utc).isoformat()
     data = Path(data_dir or os.environ.get("SLIDE_NOTES_DATA", BACKEND / "data")).resolve()
     data.mkdir(parents=True, exist_ok=True)
     for name in ("materials", "tmp"):
@@ -37,7 +39,7 @@ def create_app(data_dir=None):
     @app.before_request
     def start_request():
         g.request_started = perf_counter()
-        if request.path.startswith("/api/"):
+        if request.path.startswith("/api/") and request.path != "/api/status":
             storage_lock.acquire()
             g.storage_locked = True
 
@@ -71,6 +73,12 @@ def create_app(data_dir=None):
     def unexpected_error(error):
         app.logger.exception("Request failed")
         return jsonify(error="服务暂时无法完成操作，请重试。"), 500
+
+    @app.get("/api/status")
+    def runtime_status():
+        response = jsonify(status="ok", started_at=started_at)
+        response.cache_control.no_store = True
+        return response
 
     @app.get("/api/materials")
     def list_materials():

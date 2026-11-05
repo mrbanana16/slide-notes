@@ -1,7 +1,6 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import App from './App'
-import { readFileSync } from 'node:fs'
 
 vi.mock('pdfjs-dist', () => ({
   GlobalWorkerOptions: {},
@@ -79,19 +78,18 @@ it('opens the existing material on duplicate import without adding a directory e
 })
 
 it('does not reset when the user cancels confirmation', async () => {
-  const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
-  const fetch = vi.fn(async () => new Response(JSON.stringify(directory())))
+  const fetch = vi.fn(async (_url: string) => new Response(JSON.stringify(directory())))
   vi.stubGlobal('fetch', fetch)
   render(<App />)
   await screen.findByText('第一份.pdf')
-  fireEvent.click(screen.getByText('清空全部数据'))
-  expect(confirm).toHaveBeenCalledOnce()
-  expect(fetch).toHaveBeenCalledTimes(1)
+  fireEvent.click(screen.getByText('系统设置'))
+  fireEvent.click(screen.getByRole('button', { name: '清空全部数据' }))
+  fireEvent.click(screen.getByRole('button', { name: '取消' }))
+  expect(fetch.mock.calls.some(([url]) => url === '/api/reset')).toBe(false)
   expect(screen.getByText('第一份.pdf')).toBeTruthy()
 })
 
 it('clears materials and unsaved drafts after confirmed reset, including a late save response', async () => {
-  vi.spyOn(window, 'confirm').mockReturnValue(true)
   let finishSave!: (response: Response) => void
   const fetch = vi.fn(async (url: string, options?: RequestInit) => {
     if (options?.method === 'PUT') return await new Promise<Response>(resolve => { finishSave = resolve })
@@ -103,7 +101,9 @@ it('clears materials and unsaved drafts after confirmed reset, including a late 
   fireEvent.click(await screen.findByText('第一份.pdf'))
   fireEvent.change(await screen.findByLabelText('个人笔记'), { target: { value: 'erase my draft' } })
   fireEvent.click(screen.getByText('保存笔记'))
-  fireEvent.click(screen.getByText('清空全部数据'))
+  fireEvent.click(screen.getByText('系统设置'))
+  fireEvent.click(screen.getByRole('button', { name: '清空全部数据' }))
+  fireEvent.click(screen.getByRole('button', { name: '确认清空' }))
   await screen.findByText('全部数据已清空，可以重新导入课件。')
   finishSave(new Response(JSON.stringify({ id: 'page-a', number: 1, note: 'erase my draft', version: 1 })))
   await waitFor(() => expect(screen.queryByText('1 页未保存')).toBeNull())
@@ -117,7 +117,6 @@ it('clears materials and unsaved drafts after confirmed reset, including a late 
 })
 
 it('keeps the current draft if reset fails', async () => {
-  vi.spyOn(window, 'confirm').mockReturnValue(true)
   vi.stubGlobal('fetch', vi.fn(async (url: string) => {
     if (url === '/api/reset') return new Response(JSON.stringify({ error: '清空失败' }), { status: 500 })
     return new Response(JSON.stringify(url === '/api/directory' ? directory() : [{ id: 'page-a', number: 1, note: '', version: 0 }]))
@@ -125,7 +124,9 @@ it('keeps the current draft if reset fails', async () => {
   render(<App />)
   fireEvent.click(await screen.findByText('第一份.pdf'))
   fireEvent.change(await screen.findByLabelText('个人笔记'), { target: { value: 'keep on failure' } })
-  fireEvent.click(screen.getByText('清空全部数据'))
+  fireEvent.click(screen.getByText('系统设置'))
+  fireEvent.click(screen.getByRole('button', { name: '清空全部数据' }))
+  fireEvent.click(screen.getByRole('button', { name: '确认清空' }))
   await screen.findByRole('alert')
   await waitFor(() => expect((screen.getByLabelText('个人笔记') as HTMLTextAreaElement).value).toBe('keep on failure'))
   expect(screen.getByText('1 页未保存')).toBeTruthy()
@@ -267,19 +268,64 @@ it('keeps the open editor and draft after material deletion fails', async () => 
   expect(localStorage.length).toBeGreaterThan(0)
 })
 
-it('uses explicit light page and dialog colors independent of system theme', async () => {
-  vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(directory()))))
-  const style = document.createElement('style')
-  style.textContent = readFileSync('src/styles.css', 'utf8')
-  document.head.append(style)
+it('allows theme changes while disconnected, retries status and restores the preference on reload', async () => {
+  let online = false
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+    if (url === '/api/status' && online) return Response.json({ status: 'ok', started_at: '2026-11-05T00:00:00Z' })
+    throw new TypeError('Failed to fetch')
+  }))
+  const app = render(<App />)
+  fireEvent.click(screen.getByText('系统设置'))
+  await screen.findByText('连接失败，请检查后端服务')
+  fireEvent.click(screen.getByLabelText('深色'))
+  expect(document.documentElement.dataset.theme).toBe('dark')
+  online = true
+  fireEvent.click(screen.getByRole('button', { name: '刷新' }))
+  await screen.findByText('在线')
+  app.unmount()
+  render(<App />)
+  expect(document.documentElement.dataset.theme).toBe('dark')
+})
+
+it('follows live system changes unless an explicit display mode is selected', async () => {
+  const media = Object.assign(new EventTarget(), { matches: true })
+  vi.stubGlobal('matchMedia', (query: string) => query.includes('color-scheme') ? media : Object.assign(new EventTarget(), { matches: false }))
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => Response.json(url === '/api/status'
+    ? { status: 'ok', started_at: '2026-11-05T00:00:00Z' } : url === '/api/directory' ? directory() : [{ id: 'p1', number: 1, note: '', version: 0 }])))
+  render(<App />)
+  fireEvent.click(await screen.findByText('第一份.pdf'))
+  const editor = await screen.findByLabelText('个人笔记') as HTMLTextAreaElement
+  fireEvent.change(editor, { target: { value: '切换时保留草稿' } })
+  expect(document.documentElement.dataset.theme).toBe('dark')
+  act(() => { media.matches = false; media.dispatchEvent(new Event('change')) })
+  expect(document.documentElement.dataset.theme).toBe('light')
+  fireEvent.click(screen.getByText('系统设置'))
+  fireEvent.click(screen.getByLabelText('浅色'))
+  act(() => { media.matches = true; media.dispatchEvent(new Event('change')) })
+  expect(document.documentElement.dataset.theme).toBe('light')
+  fireEvent.click(screen.getByLabelText('跟随系统'))
+  expect(document.documentElement.dataset.theme).toBe('dark')
+  expect(screen.getByLabelText('个人笔记')).toBe(editor)
+  expect(editor.value).toBe('切换时保留草稿')
+})
+
+it('hydrates the stored dark theme directly and batches a later change in one view transition', async () => {
+  localStorage.setItem('slide-notes:display-mode', 'dark')
+  const start = vi.fn((update: () => void) => ({ finished: Promise.resolve().then(update), skipTransition: vi.fn() }))
+  Object.defineProperty(document, 'startViewTransition', { configurable: true, value: start })
   try {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => Response.json(url === '/api/status'
+      ? { status: 'ok', started_at: '2026-11-05T00:00:00Z' } : directory())))
     render(<App />)
     await screen.findByText('第一份.pdf')
-    fireEvent.click(screen.getByText('＋ 导入 PDF'))
-    const dialog = screen.getByRole('dialog')
-    expect(getComputedStyle(document.documentElement).getPropertyValue('color-scheme')).toBe('only light')
-    expect(getComputedStyle(dialog).backgroundColor).toBe('rgb(255, 255, 255)')
-    expect(getComputedStyle(dialog).color).toBe('rgb(32, 39, 51)')
-    expect(getComputedStyle(screen.getByLabelText('导入到课程')).backgroundColor).toBe('rgb(255, 255, 255)')
-  } finally { style.remove() }
+    expect(document.documentElement.dataset.theme).toBe('dark')
+    expect(start).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByText('系统设置'))
+    fireEvent.click(screen.getByLabelText('浅色'))
+    await waitFor(() => expect(document.documentElement.dataset.theme).toBe('light'))
+    expect(start).toHaveBeenCalledTimes(1)
+    expect(document.documentElement.hasAttribute('data-theme-switch')).toBe(false)
+  } finally {
+    Reflect.deleteProperty(document, 'startViewTransition')
+  }
 })

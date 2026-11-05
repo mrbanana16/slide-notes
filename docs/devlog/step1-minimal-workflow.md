@@ -121,8 +121,8 @@ npm --prefix frontend run build
 
 ### 配置与检查结论
 
-- [.run/frontend build.run.xml](../../.run/frontend_build.run.xml)：`package-json` 指向 `$PROJECT_DIR$/frontend/package.json`，命令为 `run build`，Node.js 使用 `project`。配置目标正确。本机 IDE 已登记 `/usr/local/bin/node` 24.13.1；仍需在 IDE 内确认项目默认 Node.js 选择。
-- [.run/run backend.run.xml](../../.run/backend_run.run.xml)：脚本为 `$PROJECT_DIR$/backend/run.py`，脚本模式，无额外参数；本机 `Python 3.11 (slide-notes)` SDK 指向项目 `backend/.venv/bin/python`，符合项目虚拟环境约定。
+- `历史配置 .run/frontend build.run.xml`：`package-json` 指向 `$PROJECT_DIR$/frontend/package.json`，命令为 `run build`，Node.js 使用 `project`。配置目标正确。本机 IDE 已登记 `/usr/local/bin/node` 24.13.1；仍需在 IDE 内确认项目默认 Node.js 选择。
+- `历史配置 .run/run backend.run.xml`：脚本为 `$PROJECT_DIR$/backend/run.py`，脚本模式，无额外参数；本机 `Python 3.11 (slide-notes)` SDK 指向项目 `backend/.venv/bin/python`，符合项目虚拟环境约定。
 - 后端工作目录留空，本项目入口通过脚本位置导入代码，默认数据目录由后端文件位置确定，不依赖工作目录；当前无需修改此配置。若设置 `SLIDE_NOTES_DATA`，应使用绝对路径。
 - 启动顺序为先构建、后启动后端，两份配置均无自动前置任务。访问地址为 `http://127.0.0.1:5001`，不是 Vite 的 5173 端口。
 - IDE 启动方式已补充到 README 和本文件的运行方式中，原命令方式保留在其下方；前后端清单也补充配置位置。
@@ -307,3 +307,5 @@ backend/.venv/bin/python backend/run.py
 ### 【启动配置／命令变更及验收待办】
 
 启动配置／命令未变更；本次验收归档无需新增人工操作。阶段一验收已完成，后续阶段按 `PLAN.md` 顺序推进。
+
+> 启动配置后续变更：上述独立配置已由阶段五的一键配置替代，当前操作方式见 [README](../../README.md#本地运行) 和 [阶段五记录](step5-ui-redesign.md)。本文件保留阶段一历史验证结果。
