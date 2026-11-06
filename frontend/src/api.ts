@@ -7,7 +7,12 @@ export class ApiError extends Error {
   constructor(message: string, public status: number, public current?: Page | QA) { super(message) }
 }
 export async function api<T>(url: string, options?: RequestInit): Promise<T> {
-  const response = await fetch(url, options)
+  let response: Response
+  try { response = await fetch(url, options) }
+  catch (cause) {
+    if (!options?.signal?.aborted) window.dispatchEvent(new Event('slide-notes:offline'))
+    throw cause
+  }
   const body = await response.json().catch(() => null)
   if (!response.ok) throw new ApiError(body?.error ?? `请求失败（${response.status}），请重试。`, response.status, body?.current)
   return body as T

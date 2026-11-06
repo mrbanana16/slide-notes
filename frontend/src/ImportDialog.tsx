@@ -37,7 +37,7 @@ export function ImportDialog({ open, directory, course, chapter, file, busy, err
     closable={!busy} mask={{ closable: !busy }} keyboard={!busy} cancelText="取消" okText="确认导入"
     onOk={onSubmit} okButtonProps={{ disabled: busy || !file || !course || !!duplicate }} cancelButtonProps={{ disabled: busy }}
     afterClose={() => setDrag(false)}
-    modalRender={content => <div onDragOver={e => { e.preventDefault(); if (!busy) setDrag(true) }}
+    modalRender={content => <div onDragOver={e => { if (e.dataTransfer.types.includes('Files')) { e.preventDefault(); if (!busy) setDrag(true) } }}
       onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDrag(false) }}
       onDrop={e => { e.preventDefault(); setDrag(false); const next = e.dataTransfer.files[0]; if (next && !busy) onFile(next) }}>{content}</div>}>
     <div className="importFields">

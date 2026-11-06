@@ -354,5 +354,66 @@ it('opens the narrow directory as a drawer and keeps the selected page on screen
   fireEvent.click(await screen.findByText('第一份.pdf'))
   await screen.findByText('PDF 第 1 页')
   await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
-  expect(screen.getByLabelText('所有笔记已保存')).toBeTruthy()
+  expect(screen.getByLabelText('暂无保存记录')).toBeTruthy()
+})
+
+it('keeps a background conflict visible after another save succeeds and returns from a hidden page', async () => {
+  let finish!: (r: Response) => void
+  const a = { id: 'page-a', number: 1, note: '', version: 0, display: 'hidden' }
+  const b = { id: 'page-b', number: 1, note: '', version: 0 }
+  vi.stubGlobal('fetch', vi.fn(async (url: string, options?: RequestInit) => {
+    if (options?.method === 'PUT') return url.includes('page-a') ? new Promise<Response>(r => { finish = r }) : Response.json({ ...b, version: 1 })
+    return Response.json(url === '/api/directory' ? directory() : [url.includes('/a/') ? a : b])
+  }))
+  render(<App />)
+  fireEvent.click(await screen.findByText('第一份.pdf'))
+  fireEvent.click(await screen.findByText('显示全部页面'))
+  fireEvent.change(screen.getByLabelText('个人笔记'), { target: { value: '本地版本' } })
+  fireEvent.click(screen.getByText('保存笔记'))
+  fireEvent.click(screen.getByText('第二份.pdf'))
+  await screen.findByLabelText('个人笔记')
+  await act(async () => finish(Response.json({ error: '冲突', current: { ...a, note: '远端版本', version: 1 } }, { status: 409 })))
+  fireEvent.change(screen.getByLabelText('个人笔记'), { target: { value: '另一页成功' } })
+  fireEvent.click(screen.getByText('保存笔记'))
+  await screen.findByText('已保存')
+  expect(screen.getByLabelText('保存冲突')).toBeTruthy()
+  fireEvent.click(screen.getByText('查看冲突'))
+  const recovery = screen.getByLabelText('冲突页整理')
+  expect(within(recovery).getByText('第一份.pdf · 第 1 页')).toBeTruthy()
+  expect(within(recovery).getByText('远端版本')).toBeTruthy()
+  fireEvent.click(within(recovery).getByText('返回原阅读位置'))
+  expect((screen.getByLabelText('个人笔记') as HTMLTextAreaElement).value).toBe('另一页成功')
+})
+
+it('keeps one connection alert until an explicit retry reaches the backend and reloads the directory', async () => {
+  let online = false
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+    if (!online) throw new TypeError('Failed to fetch')
+    return Response.json(url === '/api/status' ? { status: 'ok' } : directory())
+  }))
+  render(<App />)
+  const retry = await screen.findByText('重试连接')
+  fireEvent.click(retry)
+  expect(screen.getAllByText('后端连接失败，请检查服务是否运行。')).toHaveLength(1)
+  await waitFor(() => expect(retry.closest('button')?.className).not.toContain('loading'))
+  online = true
+  fireEvent.click(retry)
+  await screen.findByText('第一份.pdf')
+  expect(screen.queryByText('重试连接')).toBeNull()
+})
+
+it('ignores dragged PDF text but accepts an external file drop', async () => {
+  vi.stubGlobal('fetch', vi.fn(async () => Response.json(directory())))
+  render(<App />)
+  await screen.findByText('第一份.pdf')
+  const main = document.querySelector('main')!
+  fireEvent.dragOver(main, { dataTransfer: { types: ['text/plain'], files: [] } })
+  expect(screen.queryByText('松开以导入 PDF')).toBeNull()
+  fireEvent.drop(main, { dataTransfer: { types: ['text/plain'], files: [] } })
+  expect(screen.queryByRole('dialog')).toBeNull()
+  const file = new File(['%PDF'], '外部.pdf', { type: 'application/pdf' })
+  fireEvent.dragOver(main, { dataTransfer: { types: ['Files'], files: [] } })
+  expect(screen.getByText('松开以导入 PDF')).toBeTruthy()
+  fireEvent.drop(main, { dataTransfer: { types: ['Files'], files: [file] } })
+  expect(await screen.findByRole('dialog')).toBeTruthy()
 })

@@ -172,3 +172,17 @@ it('reports storage removal errors after deletion while retaining unrelated draf
   expect(store.entries[entry.url]).toBeUndefined()
   spy.mockRestore()
 })
+
+it('keeps only the five latest completed requests, distinguishing automatic and manual saves', async () => {
+  const store = create()
+  const entry = store.entries['/api/pages/p/note']
+  vi.stubGlobal('fetch', vi.fn(async () => Response.json({ version: entry.version + 1 })))
+  for (let i = 0; i < 6; i++) {
+    store.edit(entry, { note: String(i) })
+    if (i === 5) await vi.advanceTimersByTimeAsync(800)
+    else await store.save(entry)
+  }
+  expect(store.history).toHaveLength(5)
+  expect(store.history.map(item => item.automatic)).toEqual([true, false, false, false, false])
+  expect(store.history.every(item => item.result === '成功')).toBe(true)
+})

@@ -249,7 +249,7 @@ def create_app(data_dir=None):
 
     @app.get("/<path:filename>")
     def assets(filename):
-        mimetype = "text/javascript" if filename.lower().endswith(".mjs") else None
+        mimetype = "text/javascript" if filename.lower().endswith(".mjs") or filename.lower().endswith(".js") else None
         return send_from_directory(dist, filename, mimetype=mimetype)
 
     return app

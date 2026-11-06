@@ -10,9 +10,10 @@ import { categories, closestPage, rangePages, visiblePages, type Mode } from './
 type Props = {
   materialId: string; pages: Page[]; pdf: PDFDocumentProxy; store: DraftStore
   mode: Mode; onMode: (mode: Mode) => void; onSettings: (settings: PageSettings[]) => void
+  onNotice: (message: string) => void; onFailure: (message: string) => void
   reader: RefObject<HTMLElement | null>
 }
-export function Reader({ materialId, pages, pdf, store, mode, onMode, onSettings, reader }: Props) {
+export function Reader({ materialId, pages, pdf, store, mode, onMode, onSettings, reader, onNotice, onFailure }: Props) {
   const [layout, setLayout] = useState<'continuous' | 'single'>('continuous')
   const [current, setCurrent] = useState(1)
   const [category, setCategory] = useState('')
@@ -38,9 +39,7 @@ export function Reader({ materialId, pages, pdf, store, mode, onMode, onSettings
   const [batchCategory, setBatchCategory] = useState('')
   const [batchDisplay, setBatchDisplay] = useState('')
   const [busy, setBusy] = useState(false)
-  const [error, setError] = useState('')
   const [batchError, setBatchError] = useState('')
-  const [status, setStatus] = useState('')
   const split = useLayoutSize('slide-notes:pdf-percent', 60, 30, 72)
   const [zoom, setZoom] = useState(1)
   const [fit, setFit] = useState(false)
@@ -83,8 +82,15 @@ export function Reader({ materialId, pages, pdf, store, mode, onMode, onSettings
   }, [mode, layout, category, showHidden, includeCollapsed])
   useEffect(() => {
     if (single || typeof ResizeObserver === 'undefined') return
-    const observer = new ResizeObserver(() => restorePosition())
-    for (const row of rows.current.values()) observer.observe(row)
+    const root = reader.current
+    if (!root) return
+    let width = root.clientWidth
+    const observer = new ResizeObserver(() => {
+      if (root.clientWidth === width) return
+      width = root.clientWidth
+      restorePosition()
+    })
+    observer.observe(root)
     return () => observer.disconnect()
   }, [single, shown.map(page => page.id).join(',')])
   useEffect(() => {
@@ -96,7 +102,7 @@ export function Reader({ materialId, pages, pdf, store, mode, onMode, onSettings
   useEffect(() => {
     if (!single) return
     const key = (event: KeyboardEvent) => {
-      if (event.defaultPrevented || event.isComposing || event.keyCode === 229 || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return
+      if (reader.current?.inert || event.defaultPrevented || event.isComposing || event.keyCode === 229 || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return
       const protectedSelector = 'input, textarea, select, [contenteditable]:not([contenteditable="false"]), dialog, [role="dialog"], [role="textbox"], [role="combobox"], [role="spinbutton"], [role="slider"], [role="separator"], [role="listbox"]'
       const protectedFocus = (element: EventTarget | null) => element instanceof Element && !!element.closest(protectedSelector)
       if (protectedFocus(event.target) || protectedFocus(document.activeElement)) return
@@ -111,7 +117,7 @@ export function Reader({ materialId, pages, pdf, store, mode, onMode, onSettings
   }, [single, active?.id, shown.map(page => page.id).join(',')])
   async function saveSettings(targets: Page[], changes: object, batch = false) {
     if (busy || mode === 'review') return
-    setBusy(true); setError(''); setBatchError(''); setStatus('')
+    setBusy(true); setBatchError('')
     try {
       const result = await api<PageSettings[]>(`/api/materials/${materialId}/page-settings`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pages: targets.map(page => ({ id: page.id, version: page.settings_version ?? 0 })), ...changes }) })
       onSettings(result)
@@ -119,9 +125,9 @@ export function Reader({ materialId, pages, pdf, store, mode, onMode, onSettings
         batchPanel.current.open = false
         batchPanel.current.querySelector('summary')?.focus()
       }
-      setStatus('页面属性已保存，原始页码与笔记保留。')
+      onNotice('页面属性已保存，原始页码与笔记保留。')
     } catch (cause) {
-      const report = batch && batchPanel.current?.open ? setBatchError : setError
+      const report = batch && batchPanel.current?.open ? setBatchError : onFailure
       report(cause instanceof Error ? cause.message : '页面属性保存失败，请重试。')
       if (cause instanceof ApiError && cause.status === 409) {
         try { onSettings(await api<PageSettings[]>(`/api/materials/${materialId}/pages`)) }
@@ -171,7 +177,7 @@ export function Reader({ materialId, pages, pdf, store, mode, onMode, onSettings
         </form>
       </details>}
     </div>
-    {busy && <p role="status">正在保存页面属性…</p>}{error && <p role="alert" className="errorBanner">{error}</p>}{status && <p role="status">{status}</p>}
+    {busy && <p role="status">正在保存页面属性…</p>}
     {!shown.length && <div className="emptyState"><p>没有符合条件的页面，笔记与原始页码仍保留。</p><button onClick={() => { setCategory(''); setShowHidden(true); setIncludeCollapsed(true) }}>显示全部页面</button></div>}
     {rendered.map(page => <article className="pageRow" key={page.id} data-number={page.number} ref={element => { if (element) rows.current.set(page.id, element); else rows.current.delete(page.id) }}>
       <div className="pageLabel"><strong>第 {page.number} 页</strong><span>{page.category ?? '正文'} · {page.display === 'hidden' ? '隐藏' : page.display === 'collapsed' ? '折叠' : '正常'}</span>{settings(page)}{!single && page.display === 'collapsed' && <button aria-expanded={expanded.has(page.id)} onClick={() => setExpanded(old => { const next = new Set(old); if (next.has(page.id)) next.delete(page.id); else next.add(page.id); return next })}>{expanded.has(page.id) ? '收起页面' : '临时展开'}</button>}</div>

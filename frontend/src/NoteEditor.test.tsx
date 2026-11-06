@@ -55,13 +55,13 @@ it('retains input after network failure and allows retry', async () => {
 
 it('shows server conflict and keeps draft until the user chooses a version', async () => {
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: '另一窗口已修改此页', current: { ...page, note: '服务器内容', version: 1 } }), { status: 409 })))
-  vi.spyOn(window, 'confirm').mockReturnValue(true)
   start()
   fireEvent.change(screen.getByLabelText('个人笔记'), { target: { value: '我的草稿' } })
   fireEvent.keyDown(screen.getByLabelText('个人笔记'), { key: 's', ctrlKey: true })
   await screen.findByText('版本冲突')
   expect((screen.getByLabelText('个人笔记') as HTMLTextAreaElement).value).toBe('我的草稿')
   fireEvent.click(screen.getByText('使用服务器版本'))
+  fireEvent.click(await screen.findByRole('button', { name: /确\s*认/ }))
   expect((screen.getByLabelText('个人笔记') as HTMLTextAreaElement).value).toBe('服务器内容')
   expect(localStorage.length).toBe(0)
 })
@@ -167,4 +167,23 @@ it('labels and colors language code blocks while keeping plain, unknown, and inl
   expect(getComputedStyle(keyword).color).toBe('var(--code-keyword)')
   expect(getComputedStyle(string).color).toBe('var(--positive)')
   style.remove()
+})
+
+it('keeps the fold arrow size stable while the ripple is inserted and removed', () => {
+  const style = document.createElement('style')
+  style.textContent = styles
+  document.head.append(style)
+  try {
+    start(false)
+    const heading = screen.getByRole('button', { name: /个人笔记/ })
+    const arrow = heading.querySelector('.foldArrow')!
+    const before = getComputedStyle(arrow).fontSize
+    fireEvent.click(heading)
+    const wave = heading.querySelector('.clickWave')
+    expect(wave).toBeTruthy()
+    expect(before).toBe('20px')
+    expect(getComputedStyle(arrow).fontSize).toBe(before)
+    fireEvent.animationEnd(wave!)
+    expect(getComputedStyle(arrow).fontSize).toBe(before)
+  } finally { style.remove() }
 })

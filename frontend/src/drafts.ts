@@ -8,6 +8,7 @@ export type Entry = {
 }
 const prefix = 'slide-notes:draft:v2:'
 const equal = (a: Content, b: Content) => JSON.stringify(a) === JSON.stringify(b)
+export type SaveRecord = { pageId: string; kind: Entry['kind']; time: number; result: '成功' | '失败' | '冲突'; automatic: boolean }
 export class DraftStore {
   namespace: string
   identityError = ''
@@ -22,6 +23,8 @@ export class DraftStore {
       this.storageError = this.identityError
     }
   }
+  history: SaveRecord[] = []
+  locations = new Map<string, { materialId: string; number: number }>()
   entries: Record<string, Entry> = {}
   listeners = new Set<() => void>()
   timers = new Map<string, ReturnType<typeof setTimeout>>()
@@ -47,7 +50,8 @@ export class DraftStore {
       this.storageError = this.identityError
     } catch { this.storageError = '本地草稿写入失败（空间不足或存储不可用），请保持页面打开并保存或复制内容。' }
   }
-  bind(page: Page) {
+  bind(page: Page, materialId?: string) {
+    if (materialId) this.locations.set(page.id, { materialId, number: page.number })
     const ids = new Set((page.qa ?? []).map(qa => qa.id))
     for (const entry of Object.values(this.entries)) {
       if (entry.pageId === page.id && entry.kind === 'qa' && !ids.has(entry.id) && !entry.pending && !this.dirty(entry)) delete this.entries[entry.url]
@@ -96,9 +100,9 @@ export class DraftStore {
   }
   schedule(entry: Entry) {
     clearTimeout(this.timers.get(entry.url))
-    if (!this.paused && !entry.error && !entry.conflict && !entry.missing && this.dirty(entry)) this.timers.set(entry.url, setTimeout(() => void this.save(entry), 800))
+    if (!this.paused && !entry.error && !entry.conflict && !entry.missing && this.dirty(entry)) this.timers.set(entry.url, setTimeout(() => void this.save(entry, true), 800))
   }
-  async save(entry: Entry) {
+  async save(entry: Entry, automatic = false) {
     clearTimeout(this.timers.get(entry.url))
     if (this.paused || this.entries[entry.url] !== entry || entry.pending || entry.conflict || entry.missing || !this.dirty(entry)) return
     entry.pending = true; entry.error = ''; this.emit()
@@ -122,7 +126,11 @@ export class DraftStore {
       if (cause instanceof ApiError && cause.status === 404) entry.missing = true
     } finally {
       entry.pending = false
-      if (this.entries[entry.url] === entry) { this.persist(entry); this.schedule(entry); this.emit() }
+      if (this.entries[entry.url] === entry) {
+        this.history.unshift({ pageId: entry.pageId, kind: entry.kind, time: Date.now(), automatic, result: entry.conflict ? '冲突' : entry.error ? '失败' : '成功' })
+        this.history.length = Math.min(5, this.history.length)
+        this.persist(entry); this.schedule(entry); this.emit()
+      }
     }
   }
   resolve(entry: Entry, useLocal: boolean) {
@@ -141,6 +149,8 @@ export class DraftStore {
     this.emit()
   }
   removePages(pageIds: string[]) {
+    this.history = this.history.filter(record => !pageIds.includes(record.pageId))
+    for (const id of pageIds) this.locations.delete(id)
     for (const [url, entry] of Object.entries(this.entries)) {
       if (!pageIds.includes(entry.pageId)) continue
       clearTimeout(this.timers.get(url)); this.timers.delete(url)
@@ -159,7 +169,7 @@ export class DraftStore {
   pause(value: boolean) { this.paused = value; for (const entry of Object.values(this.entries)) this.schedule(entry) }
   clear() {
     for (const timer of this.timers.values()) clearTimeout(timer)
-    this.timers.clear(); this.entries = {}
+    this.timers.clear(); this.entries = {}; this.history = []; this.locations.clear()
     try { for (const key of Object.keys(localStorage)) if (key.startsWith(prefix)) localStorage.removeItem(key) } catch { this.storageError = '数据已清空，但浏览器草稿清理失败，请清理此站点存储。' }
     this.emit()
   }
