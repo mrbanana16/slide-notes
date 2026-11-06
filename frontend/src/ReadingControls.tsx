@@ -1,24 +1,8 @@
-import { useState, type MouseEvent, type PointerEvent } from 'react'
+import { FilePdfOutlined } from '@ant-design/icons'
+import { useState, type PointerEvent } from 'react'
 
 export function PdfIcon() {
-  return <svg className="pdfIcon" viewBox="0 0 30 36" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.6">
-    <path d="M4 2h14l8 8v24H4z M18 2v9h8" /><text x="5.5" y="26" fill="currentColor" stroke="none" fontSize="9" fontWeight="bold">PDF</text>
-  </svg>
-}
-
-export function ripple(event: MouseEvent<HTMLButtonElement>) {
-  if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return
-  const button = event.currentTarget
-  const rect = button.getBoundingClientRect()
-  const wave = document.createElement('span')
-  wave.className = 'clickWave'
-  wave.style.left = (event.detail ? event.clientX - rect.left : rect.width / 2) + 'px'
-  wave.style.top = (event.detail ? event.clientY - rect.top : rect.height / 2) + 'px'
-  wave.style.width = Math.hypot(rect.width, rect.height) * 2 + 'px'
-  wave.setAttribute('aria-hidden', 'true')
-  button.append(wave)
-  wave.addEventListener('animationend', () => wave.remove(), { once: true })
-  window.setTimeout(() => wave.remove(), 450)
+  return <FilePdfOutlined className="pdfIcon" aria-hidden="true" />
 }
 
 export function useLayoutSize(key: string, initial: number, min: number, max: number) {

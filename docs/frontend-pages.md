@@ -1,6 +1,6 @@
 # 前端页面列表
 
-最后更新：2026-11-05（阶段 5.4，人工验收通过）。仅列当前实现。
+最后更新：2026-11-06（阶段 5.5，人工验收通过）。仅列当前实现。
 
 ## 页面与页面内状态
 
@@ -9,16 +9,14 @@
 | 页面／视图 | 进入方式与作用 | 主要操作 | 代码文件 | 关联接口 |
 |---|---|---|---|---|
 | 工作台初始视图 `/` | 首次进入、没有选中课件或清空后 | 固定“未分类”、创建普通课程、导入 PDF、打开目录内课件、收起目录 | `frontend/src/App.tsx` | GET `/api/directory`、POST `/api/courses` |
-| 课件整理视图 `/` | 点击课件或完成导入；连续显示原始页码与该页笔记 | 查看 PDF、逐页编辑、折叠笔记区、预览 Markdown、分类及显示状态操作 | `App.tsx`、`Reader.tsx`、`PdfPage.tsx`、`NoteEditor.tsx` | GET `/api/materials/{id}/pages`、GET `/api/materials/{id}/file` |
-| 复习连续视图 `/` | 顶部「复习」，首次默认连续；同一路由内状态 | 逐页 PDF 与 Markdown 只读预览、笔记区临时折叠、筛选与独立全屏；禁止笔记、目录、页面属性及导入／删除／清空修改 | `App.tsx`、`Reader.tsx`、`NoteEditor.tsx` 的 `NotePreview` | 共用页面／文件 GET；先前编辑仍由 `drafts.ts` 保存 |
-| 复习单页视图 `/` | 复习工具栏「单页阅读」 | 保留当前页，上一／下一页、原始页码跳转、←／↑ 上一页与 →／↓ 下一页、缩放／适应页面；返回连续时恢复页与页内位置，全屏与布局互不改变 | `Reader.tsx`、`reading.ts`、`PdfPage.tsx` | 共用页面／文件 GET，无新的模式 API |
-| 沉浸整理视图 `/` | 顶部「沉浸整理」，目录默认收起，可用顶栏菜单键展开 | 单页编辑、翻页、跳转、缩放、适应页面、属性与批量操作、全屏；退出沉浸回到整理 | `App.tsx`、`Reader.tsx`、`NoteEditor.tsx`、`PdfPage.tsx` | 共用笔记 PUT；PATCH `/api/materials/{id}/page-settings` |
-| 页面分类与显示状态 | 整理／沉浸中页码条的下拉框 | 六类分类独立于正常／折叠／隐藏；连续折叠页可临时展开；失败保持原属性，冲突读取最新属性再由用户重试 | `Reader.tsx` 的 `saveSettings`、`reading.ts` | PATCH `/api/materials/{id}/page-settings`，冲突时 GET `/api/materials/{id}/pages`，仅合并属性不替换笔记 |
-| 批量取舍 | 整理／沉浸的「批量操作」面板 | 原始页码范围 `1-3,5`，分类／显示状态可保持或修改；覆盖范围内被筛选、隐藏的页面，整批事务保存 | `Reader.tsx`、`reading.ts` 的 `rangePages` | PATCH `/api/materials/{id}/page-settings` |
-| 筛选／没有可见页 | 阅读工具栏的「筛选」面板，三模式共用 | 分类筛选、显示隐藏页；单页可包含折叠页；显示跳过数量；空结果提供「显示全部页面」，不修改持久属性 | `Reader.tsx`、`reading.ts` 的 `visiblePages` | 无额外写入 |
-| 课程目录 | 左侧课程 → 课程直属课件／章节 → 课件，均为 `/` 内状态 | 创建课程、添加章节、折叠、改名、上移下移、拖动排序、跨章节／课程移动，跨课程需确认；普通空容器删除 | `Directory.tsx`、`directoryOrder.ts`、`directoryDnd.ts`、`App.tsx` | GET `/api/directory`；POST `/api/courses`、`/api/chapters`；PATCH／DELETE `/api/courses/{id}`、`/api/chapters/{id}`；PATCH `/api/materials/{id}`；PUT `/api/directory/order` |
+| 课件整理视图 `/` | 点击课件或完成导入；连续显示原始页码与该页笔记 | 查看 PDF、逐页编辑、折叠笔记区、预览 Markdown、逐页折叠／展开 | `App.tsx`、`Reader.tsx`、`PdfPage.tsx`、`NoteEditor.tsx` | GET `/api/materials/{id}/pages`、GET `/api/materials/{id}/file` |
+| 复习连续视图 `/` | 顶部「复习」，首次默认连续；同一路由内状态 | 逐页 PDF 与 Markdown 只读预览、笔记区临时折叠、逐页折叠与独立全屏；禁止笔记、目录、导入／删除／清空修改 | `App.tsx`、`Reader.tsx`、`NoteEditor.tsx` 的 `NotePreview` | 共用页面／文件 GET；先前编辑仍由 `drafts.ts` 保存 |
+| 复习单页视图 `/` | 复习工具栏「单页阅读」 | 保留当前页，顶栏页码可输入并回车跳转，上一／下一页、←／↑ 上一页与 →／↓ 下一页、缩放／适应页面；返回连续时恢复页与页内位置，全屏与布局互不改变 | `Reader.tsx`、`App.tsx`、`reading.ts`、`PdfPage.tsx` | 共用页面／文件 GET，无新的模式 API |
+| 沉浸整理视图 `/` | 顶部「沉浸整理」，目录默认收起，可用顶栏菜单键展开 | 单页编辑、翻页、跳转、缩放、适应页面、逐页折叠／展开、全屏；退出沉浸回到整理 | `App.tsx`、`Reader.tsx`、`NoteEditor.tsx`、`PdfPage.tsx` | 共用笔记 PUT；PATCH `/api/materials/{id}/page-settings` |
+| 页面折叠／显示 | 每页页码左侧图标，悬停／聚焦显示，触屏常显 | 三模式均保存 normal／collapsed，折叠保留页码条；失败保持原状态，冲突读取最新状态后显式重试 | `Reader.tsx` 的 `togglePage` | PATCH `/api/materials/{id}/page-settings`；冲突时 GET `/api/materials/{id}/pages`，只合并显示属性 |
+| 课程目录 | 左侧课程 → 课程直属课件／章节 → 课件，均为 `/` 内状态 | 创建课程、添加章节、折叠、改名、上移下移、拖动排序、跨章节／课程移动，跨课程需确认；普通空容器删除 | `Directory.tsx`、`directoryOrder.ts`、`directoryTree.ts`、`App.tsx` | GET `/api/directory`；POST `/api/courses`、`/api/chapters`；PATCH／DELETE `/api/courses/{id}`、`/api/chapters/{id}`；PATCH `/api/materials/{id}`；PUT `/api/directory/order` |
 | 导入归属弹窗 | 导入按钮或将 PDF 拖入工作区，Ant Design 弹窗 | 选择归属，或在下拉末项创建并选中课程／章节；选择或拖入文件、核对文件信息、取消／确认；错误时可重新加载目录 | `ImportDialog.tsx`、`App.tsx` | POST `/api/courses`、`/api/chapters`；POST `/api/materials`；GET `/api/directory` |
-| 跨课程转移确认 | 课件拖到另一课程的标题／章节／课件／空区域，或菜单选择另一课程目标 | 展示源位置与目标位置；取消不请求，确认后更新归属，保留页 ID 和笔记；目标折叠时自动展开 | `TransferDialog.tsx`、`Directory.tsx`、`directoryOrder.ts` | PUT `/api/directory/order`，包含 `transfers` 确认列表 |
+| 跨课程转移确认 | 课件拖到另一课程／章节标题或课件间隙，或菜单选择另一课程目标 | 展示源位置与目标位置；取消不请求，确认后更新归属，保留页 ID 和笔记；目标折叠时自动展开 | `TransferDialog.tsx`、`Directory.tsx`、`directoryOrder.ts` | PUT `/api/directory/order`，包含 `transfers` 确认列表 |
 | 重复课件提示 | 上传返回 `duplicate: true`，仍在导入弹窗 | 显示“课件已存在”和课程／可选章节／课件完整位置；选择打开已有课件或关闭，不自动切换课件 | `ImportDialog.tsx`、`App.tsx` | POST `/api/materials`；用户选择打开后 GET `/api/directory` 和原课件页面／文件 |
 | 删除课件确认 | 课件「⋯」菜单，先查询删除影响再显示确认框 | 显示页数、已保存笔记／问答数、当前未保存编辑数；取消保留，确认后清理对应页草稿与迟到响应 | `Directory.tsx`、`App.tsx`、`drafts.ts` | GET／DELETE `/api/materials/{id}` |
 | 目录保存失败／版本冲突 | 修改目录失败或其他窗口已变更目录 | 保持原结构、提示错误；重新加载目录后重做操作，保留笔记草稿 | `App.tsx`、`ImportDialog.tsx` | GET `/api/directory`；原目录写接口 |
@@ -35,14 +33,14 @@
 
 ## 目录交互
 
-- 桌面拖动目录右侧分隔线调宽；窄屏点菜单打开抽屉，选中课件即关闭。标题区用于拖动或点选，左侧箭头独立展开。「＋」在「⋯」左边用于添加章节，普通课程、章节和课件使用「⋯」第一项重命名。复习时保留目录浏览。
-- 顶栏全屏图标在模式切换左侧，当前模式以蓝色下划线标识。点击窄屏保存状态点可查看现有保存说明。
-- 阅读工具常驻原始页码跳转及筛选入口，并显示生效条件。宽屏各页共用一个 PDF 栏比例；拖动或左右键调整后保存到浏览器，空间较窄时改为上下排列。`ReadingControls.tsx` 提供分隔线及尺寸偏好。
+- 桌面拖动目录右侧分隔线调宽；窄屏点菜单打开抽屉，选中课件即关闭。标题区用于拖动或点选，左侧箭头独立展开。添加章节收入课程「⋯」菜单第一项，目录标题「＋」用于创建课程，普通课程、章节和课件使用「⋯」中的重命名项。复习时保留目录浏览。
+- 顶栏全屏图标在 Tabs 模式切换左侧，当前模式以蓝色下划线标识。点击窄屏保存状态点可查看现有保存说明。
+- 顶栏当前页指示紧跟文件名，显示「当前页 / 总页数」；点击当前页输入数字并按回车跳转。单页模式另提供翻页及缩放；分类、隐藏、筛选和批量入口已移除。宽屏各页共用一个 PDF 栏比例；拖动或左右键调整后保存到浏览器，空间较窄时改为上下排列。`ReadingControls.tsx` 提供分隔线及尺寸偏好。
 
-- dnd-kit 通过条目标题开始拖动、拖动预览与落点线；普通课程排序、同课程章节排序、课件排序及跨章节／课程移动由单次目录事务提交。可放到课程／章节标题（包括折叠状态）、课件或展开后的空组；跨课程先展示确认弹窗，确认前不提交。全部菜单操作均可用键盘完成。
-- 放下后按目标立即投影显示新目录，等待响应期间禁用其他目录变更；成功采用服务器快照，失败恢复原结构。拖动浮层禁用默认回到旧位置的落下动画，原行不叠加位移。
+- Ant Design Tree 提供原生拖放、展开和落点反馈；普通课程排序、同课程章节排序、课件排序及跨章节／课程移动由单次目录事务提交。可放到课程／章节标题（包括折叠状态）、课件间隙；空课程／章节可通过标题接收课件；跨课程先展示确认弹窗，确认前不提交。全部菜单操作均可用键盘完成。
+- 放下后按目标立即投影显示新目录，等待响应期间禁用其他目录变更；成功采用服务器快照，失败恢复原结构。使用 Tree 原生拖放反馈，不再叠加旧 dnd-kit 浮层或位移动画。
 - 系统“未分类”初始化即存在，固定在首位，不提供改名／删除／排序操作，但可接收及移出课件。清空后服务返回含此系统分类的快照，前端立即保留它。
-- 课件选择按钮与「⋯」操作菜单分开；上移／下移在边界禁用，移动下拉框以课程名为分组标题，组内仅列「课程直属」与章节名，跨课程选择同样先确认。目录请求进行中禁用目录操作，错误不假装已保存。
+- Tree 课件节点与更多 Dropdown 操作菜单分开；上移／下移在边界禁用，“移动到…”弹窗内 Select 以课程名为分组标题，组内仅列「课程直属」与章节名，跨课程选择同样先确认。目录请求进行中禁用目录操作，错误不假装已保存。
 - 当前课件只在 ID 变化或显式重载时重新读取页面与 PDF；改名、排序与移动只更新目录／面包屑，编辑器及草稿继续工作。
 - 目录折叠状态仅留在当前组件会话，不写入数据库；排序和归属持久化。每个课程先显示直属课件，再显示按顺序排列的章节。
 
@@ -65,7 +63,7 @@
 
 ## 构建与启动
 
-PyCharm：完成 Python 环境安装并确认项目 Node.js 后，停止旧后端／旧 Vite，选择唯一共享配置 [`run`](../.run/run.run.xml)。每次启动自动依次安装前端依赖（`npm ci`）、构建（`npm run build`）、启动 `backend/run.py`；前置任务成功结束后才启动后端。后端成功绑定端口后自动调用系统默认浏览器打开 <http://127.0.0.1:5001/>；浏览器调用失败仅记录提示，可手动访问，后端继续运行。IDE 和命令方式均有此行为。旧 `frontend_ci`、`frontend_build` 已删除，旧 `backend_run` 已替换为 `run`，请停用 IDE 中残留的旧配置。代码更新后停止服务并重新运行 `run`，再刷新页面；构建本身不启动 Vite 服务。后端启动自动迁移到 `0006`，原页面 ID 与笔记保持。
+PyCharm：完成 Python 环境安装并确认项目 Node.js 后，停止旧后端／旧 Vite，选择唯一共享配置 [`run`](../.run/run.run.xml)。每次启动自动依次安装前端依赖（`npm ci`）、构建（`npm run build`）、启动 `backend/run.py`；前置任务成功结束后才启动后端。后端成功绑定端口后自动调用系统默认浏览器打开 <http://127.0.0.1:5001/>；浏览器调用失败仅记录提示，可手动访问，后端继续运行。IDE 和命令方式均有此行为。旧 `frontend_ci`、`frontend_build` 已删除，旧 `backend_run` 已替换为 `run`，请停用 IDE 中残留的旧配置。代码更新后停止服务并重新运行 `run`，再刷新页面；构建本身不启动 Vite 服务。后端启动自动迁移到 `0007`，原页面 ID 与笔记保持。
 
 命令方式（项目根目录）：
 
@@ -79,8 +77,41 @@ backend/.venv/bin/python backend/run.py
 
 ## 阅读位置与只读边界
 
-模式、复习布局、筛选、临时展开及缩放属于当前课件阅读会话的前端状态，无独立路由或后端模式开关。切换模式保留稳定页面 ID 对应的草稿，连续布局记录可见原始页码与页内偏移；单页默认跳过折叠和隐藏，当前页不再符合条件时取后续第一符合页，否则最后符合页。首次打开课件不强制滚动到第一篇正文。
+模式、复习布局及缩放属于当前课件阅读会话的前端状态，页面折叠／展开通过接口持久化，无独立路由或后端模式开关。切换模式保留稳定页面 ID 对应的草稿，连续布局记录可见原始页码与页内偏移；单页按原始页码浏览所有页面，包括折叠页；折叠页仍可展开。首次打开课件不强制滚动到第一篇正文。
 
-复习预览读取工作台草稿，先前编辑仍可完成自动保存；没有 textarea、添加／删除问答和页面属性写入入口。目录可选课件并临时折叠，拖动和变更菜单禁用／移除，导入与清空禁用。保存冲突可从顶栏告警直接进入冲突页整理视图。全屏失败显示可继续使用窗口布局的提示；Esc 只改变浏览器全屏状态。
+复习预览读取工作台草稿，先前编辑仍可完成自动保存；没有 textarea、添加／删除问答入口（页面折叠／展开仍可保存）。目录可选课件并临时折叠，拖动和变更菜单禁用／移除，导入与清空禁用。保存冲突可从顶栏告警直接进入冲突页整理视图。全屏失败显示可继续使用窗口布局的提示；Esc 只改变浏览器全屏状态。
 
-单页复习与沉浸整理共用四向方向键快捷键，工具栏显示说明。普通按钮聚焦（例如点击单页阅读后）仍可使用；文本框、选择框、可编辑内容、弹窗和文本输入类 ARIA 控件聚焦时保留自身键盘行为。输入法组词、修饰键组合及已被其他控件处理的事件不触发翻页。连续模式不注册此翻页处理，翻页仍使用筛选后的可见页面顺序。
+单页复习与沉浸整理共用四向方向键快捷键，工具栏显示说明。普通按钮聚焦（例如点击单页阅读后）仍可使用；文本框、选择框、可编辑内容、弹窗和文本输入类 ARIA 控件聚焦时保留自身键盘行为。输入法组词、修饰键组合及已被其他控件处理的事件不触发翻页。连续模式不注册此翻页处理，翻页仍使用原始页码顺序，包括折叠页。
+
+## 阶段 5.5 外观更新（人工验收通过）
+
+独立路由仍仅 `/`，所有阅读／整理状态及接口保持原有约定。目录更多操作使用 Dropdown，“移动到…”先打开分组 Select 弹窗，再按需要确认跨课程转移；顶栏采用 Breadcrumb 与 Tabs，导入使用手动提交的 Upload.Dragger。页码指示紧贴文件名并用 InputNumber 融合当前页与跳转，单页缩放用 Select，页码左侧悬停图标持久保存折叠／显示且不改变页码位置，阅读布局和编辑预览用 Segmented。笔记三区使用保留内容的无边框 Collapse、轻底色画布内自适应高度的 Input.TextArea 与 Alert；空状态仅在无内容时显示，问答始终保留条数。问答删除通过点击触发确认，保存记录以状态时间线呈现。
+
+应用图标全部来自 @ant-design/icons；专用 Grid、PDF.js、Markdown、草稿及分隔线保留。各实现位置沿用上表，组件映射见下表。启动配置未变，新增图标直接依赖后需 ci、build，重新运行 PyCharm run 完成统一验收。
+
+### Ant Design 组件清单
+
+| 界面区域／入口 | 组件与设计 | 实现位置 |
+|---|---|---|
+| 明暗主题、跟随系统、减少动态效果 | ConfigProvider、主题算法、Design Token 及根节点 CSS 变量桥接 | frontend/src/theme.tsx |
+| 目录行、展开、创建与添加章节 | Tree、Button、Tooltip；原生层级、选中、展开与拖放 | frontend/src/Directory.tsx |
+| 目录“更多”与移动目标 | Dropdown 菜单、Modal、分组 Select；跨课程仍二次确认 | frontend/src/Directory.tsx、TransferDialog.tsx |
+| 顶栏 | Breadcrumb、Typography、Tabs、Tooltip、Button；共用阅读器 | frontend/src/App.tsx |
+| 保存状态与日志 | Badge、Popover、Divider；最近五条真实记录 | frontend/src/App.tsx |
+| 导入课件 | Modal、Upload.Dragger、Select、Input、Button、Alert；禁止自动上传，确认后请求 | frontend/src/ImportDialog.tsx |
+| 页码、缩放、翻页与页面折叠 | Select、InputNumber、Button、Tooltip、Space.Compact | frontend/src/Reader.tsx |
+| 连续／单页阅读 | Segmented | frontend/src/Reader.tsx |
+| 三个笔记区、编辑／预览 | 无边框 Collapse、Segmented、无边框自适应 Input.TextArea；保留 Markdown 渲染和草稿队列 | frontend/src/NoteEditor.tsx |
+| 保存、问答删除及冲突恢复 | Button、Popconfirm、Alert | frontend/src/NoteEditor.tsx |
+| 初始空态、无页面与加载 | Empty、Spin、Ant 图标 | frontend/src/App.tsx、Reader.tsx、ConflictPage.tsx |
+| 后端状态、显示模式及运行时间 | Modal、Badge、Radio.Group、Descriptions、Button；清空仍二次确认 | frontend/src/SystemSettings.tsx |
+| 失败、断联与冲突通知 | notification、Alert、Button，使用真实请求结果 | frontend/src/App.tsx、PdfPage.tsx、ConflictPage.tsx |
+| 窄屏目录 | Drawer | frontend/src/App.tsx |
+
+课程直属归属仍持久化，目录仅隐藏“课程直属”和其空课件提示；移动弹窗仍可明确选择“课程直属”。Tree 内方向键浏览，菜单支持键盘排序／移动。
+
+2026-11-06 更新：笔记板块底部保存状态与按钮已移除，手动保存仅使用 Ctrl／⌘ + S 并通过 toast 返回结果；自动保存失败同样提示。深色主题使用灰蓝背景层级；目录箭头和页面折叠提供过渡，页面显示状态保存成功不弹 toast。
+
+页码输入框为 72px 并居中显示；笔记编辑器聚焦时仅显示柔和的外层边框，内部 textarea 不重复绘制焦点框。
+
+深色主题恢复阶段 5.5 前的深蓝灰背景（画布 #1B2028、容器 #242B35），通过 Ant 主题令牌统一；Markdown 编辑预览左右留白为 24px，复习预览同步增加内边距。

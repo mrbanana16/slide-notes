@@ -53,7 +53,6 @@ class Page(Base):
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
     material_id: Mapped[str] = mapped_column(ForeignKey("materials.id"))
     number: Mapped[int] = mapped_column(Integer)
-    category: Mapped[str] = mapped_column(Text, default="正文")
     display: Mapped[str] = mapped_column(Text, default="normal")
     settings_version: Mapped[int] = mapped_column(Integer, default=0)
     note: Mapped["PageNote"] = relationship(cascade="all, delete-orphan", single_parent=True)

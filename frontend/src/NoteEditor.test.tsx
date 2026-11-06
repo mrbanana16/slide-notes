@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { useEffect, useState } from 'react'
 import { NoteEditor, MarkdownPreview } from './NoteEditor'
@@ -77,11 +77,11 @@ it('folds three sections independently and adds multiple question/answer editors
   fireEvent.click(screen.getByRole('button', { name: /个人笔记/ }))
   expect(screen.getByLabelText('个人笔记').closest('[inert]')).toBeNull()
   fireEvent.click(screen.getByRole('button', { name: /追问与 AI 解答/ }))
-  fireEvent.click(screen.getByText('＋ 添加问答'))
-  fireEvent.click(screen.getByText('＋ 添加问答'))
+  fireEvent.click(screen.getByRole('button', { name: /添加问答/ }))
+  fireEvent.click(screen.getByRole('button', { name: /添加问答/ }))
   fireEvent.change(screen.getByLabelText('问题 2'), { target: { value: '为什么？' } })
   fireEvent.change(screen.getByLabelText('回答 2'), { target: { value: '**答案**' } })
-  fireEvent.click(screen.getByLabelText('回答 2预览'))
+  fireEvent.click(within(screen.getByLabelText('回答 2显示方式')).getByText('预览'))
   expect(screen.getByText('答案').tagName).toBe('STRONG')
   expect(screen.getByText('2 条问答')).toBeTruthy()
 })
@@ -107,7 +107,6 @@ it('preserves QA after cancelled deletion and retries a failed deletion', async 
   fireEvent.click(await screen.findByRole('button', { name: /取\s*消/ }))
   fireEvent.click(screen.getByLabelText('删除问答'))
   fireEvent.click(await screen.findByRole('button', { name: /删\s*除$/ }))
-  fireEvent.click(screen.getByText('保存问答'))
   await screen.findByText('删除失败')
   expect((screen.getByLabelText('问题 1') as HTMLTextAreaElement).value).toBe('q')
   fireEvent.click(screen.getByText('重试保存'))
@@ -169,21 +168,15 @@ it('labels and colors language code blocks while keeping plain, unknown, and inl
   style.remove()
 })
 
-it('keeps the fold arrow size stable while the ripple is inserted and removed', () => {
-  const style = document.createElement('style')
-  style.textContent = styles
-  document.head.append(style)
-  try {
-    start(false)
-    const heading = screen.getByRole('button', { name: /个人笔记/ })
-    const arrow = heading.querySelector('.foldArrow')!
-    const before = getComputedStyle(arrow).fontSize
-    fireEvent.click(heading)
-    const wave = heading.querySelector('.clickWave')
-    expect(wave).toBeTruthy()
-    expect(before).toBe('20px')
-    expect(getComputedStyle(arrow).fontSize).toBe(before)
-    fireEvent.animationEnd(wave!)
-    expect(getComputedStyle(arrow).fontSize).toBe(before)
-  } finally { style.remove() }
+it('retains editor identity and content across repeated collapse toggles', () => {
+  start()
+  const input = screen.getByLabelText('个人笔记')
+  fireEvent.change(input, { target: { value: '折叠保留草稿' } })
+  const heading = screen.getByRole('button', { name: /个人笔记/ })
+  fireEvent.click(heading)
+  expect(input.closest('[inert]')).toBeTruthy()
+  fireEvent.click(heading)
+  expect(screen.getByLabelText('个人笔记')).toBe(input)
+  expect((input as HTMLTextAreaElement).value).toBe('折叠保留草稿')
+  expect(input.closest('[inert]')).toBeNull()
 })

@@ -1,3 +1,4 @@
+import { Alert } from 'antd'
 import { useEffect, useRef, useState } from 'react'
 import { TextLayer, type PDFDocumentProxy } from 'pdfjs-dist'
 import 'pdfjs-dist/web/pdf_viewer.css'
@@ -65,5 +66,5 @@ export function PdfPage({ pdf, number, zoom = 1, fit = false }: { pdf: PDFDocume
     }).catch(() => { if (!stopped) setError('此页无法读取，请重新导出 PDF。') })
     return () => { stopped = true; clearTimeout(timer); if (onResize) window.removeEventListener('resize', onResize); observer?.disconnect(); render?.cancel(); text?.cancel(); element.replaceChildren() }
   }, [pdf, number, visible, zoom, fit])
-  return <div className="pdfSurface"><div className="pdfViewport"><div ref={container} className="pdfPage" /></div>{error && <p role="alert">{error}</p>}</div>
+  return <div className="pdfSurface"><div className="pdfViewport"><div ref={container} className="pdfPage" /></div>{error && <Alert type="error" showIcon title={error} />}</div>
 }

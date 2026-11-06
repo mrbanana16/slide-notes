@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Button, Modal, Radio, Tooltip } from 'antd'
+import { Badge, Button, Descriptions, Modal, Radio, Tooltip } from 'antd'
 import { api } from './api'
 import { overlayContainer, type DisplayMode } from './theme'
 
@@ -42,7 +42,7 @@ export function SystemSettings({ mode, selectMode, readOnly, canReset, onClose, 
   return <>
     <Modal open={open} afterClose={onClose} title="系统设置" getContainer={overlayContainer} footer={null} onCancel={() => setOpen(false)}>
       <div className="settingsRow"><strong>后端运行状态</strong>
-        <span role="status"><i className={`statusDot ${status}`} />{status === 'online' ? '在线' : status === 'offline' ? '连接失败，请检查后端服务' : '检测中…'}</span>
+        <span role="status"><Badge status={status === 'online' ? 'success' : status === 'offline' ? 'error' : 'warning'} /> {status === 'online' ? '在线' : status === 'offline' ? '连接失败，请检查后端服务' : '检测中…'}</span>
         <Button disabled={status === 'checking'} onClick={() => setCheck(n => n + 1)}>刷新</Button>
       </div>
       <div className="settingsRow"><strong id="display-label">显示模式</strong>
@@ -56,8 +56,10 @@ export function SystemSettings({ mode, selectMode, readOnly, canReset, onClose, 
           </span>
         </Tooltip>
       </div>
-      <dl className="runtimeTimes"><dt>前端构建时间</dt><dd>{localTime(__BUILD_TIME__)}</dd>
-        <dt>后端启动时间</dt><dd>{started ? localTime(started) : '—'}</dd></dl>
+      <Descriptions size="small" column={1} items={[
+        { key: 'build', label: '前端构建时间', children: localTime(__BUILD_TIME__) },
+        { key: 'started', label: '后端启动时间', children: started ? localTime(started) : '—' },
+      ]} />
     </Modal>
     <Modal open={confirming} title="清空全部数据？" getContainer={overlayContainer} okText="确认清空" cancelText="取消"
       okButtonProps={{ danger: true, disabled: !canReset }} onCancel={() => setConfirming(false)} onOk={onReset}>

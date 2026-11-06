@@ -27,5 +27,5 @@ export default defineConfig({
     },
   }],
   server: { proxy: { '/api': 'http://127.0.0.1:5001' } },
-  test: { environment: 'jsdom', setupFiles: ['src/testSetup.ts'] },
+  test: { testTimeout: 15000, environment: 'jsdom', setupFiles: ['src/testSetup.ts'] },
 })

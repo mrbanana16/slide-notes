@@ -129,6 +129,7 @@ export class DraftStore {
       if (this.entries[entry.url] === entry) {
         this.history.unshift({ pageId: entry.pageId, kind: entry.kind, time: Date.now(), automatic, result: entry.conflict ? '冲突' : entry.error ? '失败' : '成功' })
         this.history.length = Math.min(5, this.history.length)
+        window.dispatchEvent(new CustomEvent('slide-notes:save-result', { detail: { automatic, result: entry.conflict ? '冲突' : entry.error ? '失败' : '成功', error: entry.error } }))
         this.persist(entry); this.schedule(entry); this.emit()
       }
     }

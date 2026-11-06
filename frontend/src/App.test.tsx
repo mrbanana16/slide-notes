@@ -1,3 +1,4 @@
+import { chooseOption, directoryAction, openMaterial } from './testInteractions'
 import { act, cleanup, fireEvent, render, screen, within, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import App from './App'
@@ -20,22 +21,23 @@ const system = { id: 'system', name: '未分类', position: 0, is_system: true }
 const directory = (items = materials) => ({ revision: 0, courses: [system, { id: 'course', name: '数据结构', position: 1 }], chapters: [], materials: items })
 
 it('keeps unsaved notes bound to their page when switching materials and warns before closing', async () => {
-  vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+  vi.stubGlobal('fetch', vi.fn(async (url: string, options?: RequestInit) => {
+    if (options?.method === 'PUT') return Response.json({ error: '保存暂不可用' }, { status: 503 })
     const result = url === '/api/directory' ? directory() : [{ id: url.includes('/a/') ? 'page-a' : 'page-b', number: 1, note: '', version: 0 }]
     return new Response(JSON.stringify(result))
   }))
   render(<App />)
-  fireEvent.click(await screen.findByText('第一份.pdf'))
+  await openMaterial('第一份.pdf')
   const firstInput = await screen.findByLabelText('个人笔记')
   fireEvent.change(firstInput, { target: { value: '只属于第一份' } })
   const event = new Event('beforeunload', { cancelable: true })
   window.dispatchEvent(event)
   expect(event.defaultPrevented).toBe(true)
-  fireEvent.click(screen.getByText('第二份.pdf'))
+  await openMaterial('第二份.pdf')
   await waitFor(() => expect((screen.getByLabelText('个人笔记') as HTMLTextAreaElement).value).toBe(''))
-  fireEvent.click(screen.getByText('第一份.pdf'))
+  await openMaterial('第一份.pdf')
   await waitFor(() => expect((screen.getByLabelText('个人笔记') as HTMLTextAreaElement).value).toBe('只属于第一份'))
-  expect(screen.getByText('1 页未保存')).toBeTruthy()
+  expect(screen.getByRole('button', { name: /1 页未保存|保存失败/ })).toBeTruthy()
 })
 
 it('imports a PDF and opens its stable page', async () => {
@@ -49,8 +51,8 @@ it('imports a PDF and opens its stable page', async () => {
   render(<App />)
   await screen.findByText('从一份课件开始')
   const file = new File(['%PDF'], '第一份.pdf', { type: 'application/pdf' })
-  fireEvent.click(screen.getByText('＋ 导入 PDF'))
-  fireEvent.change(screen.getByLabelText('选择 PDF 课件'), { target: { files: [file] } })
+  fireEvent.click(screen.getByRole('button', { name: /^导入 PDF$/ }))
+  fireEvent.change(document.querySelector('input[type="file"]')!, { target: { files: [file] } })
   fireEvent.click(screen.getByText('确认导入'))
   await screen.findByLabelText('个人笔记')
   const upload = fetch.mock.calls.find(call => call[1]?.method === 'POST')
@@ -66,15 +68,15 @@ it('opens the existing material on duplicate import without adding a directory e
   }))
   render(<App />)
   await screen.findByText('第一份.pdf')
-  fireEvent.click(screen.getByText('＋ 导入 PDF'))
-  fireEvent.change(screen.getByLabelText('选择 PDF 课件'), { target: { files: [new File(['%PDF'], 'renamed.pdf')] } })
+  fireEvent.click(screen.getByRole('button', { name: /^导入 PDF$/ }))
+  fireEvent.change(document.querySelector('input[type="file"]')!, { target: { files: [new File(['%PDF'], 'renamed.pdf')] } })
   fireEvent.click(screen.getByText('确认导入'))
   await screen.findByText('课件已存在')
   expect(screen.getByText('所在位置：数据结构 / 第一份.pdf')).toBeTruthy()
   expect(screen.queryByLabelText('个人笔记')).toBeNull()
   fireEvent.click(screen.getByText('打开已有课件'))
   await waitFor(() => expect((screen.getByLabelText('个人笔记') as HTMLTextAreaElement).value).toBe('existing note'))
-  expect(screen.getByRole('navigation').querySelectorAll('.material')).toHaveLength(2)
+  expect(screen.getByRole('navigation', { name: '课程结构' }).querySelectorAll('.material')).toHaveLength(2)
 })
 
 it('does not reset when the user cancels confirmation', async () => {
@@ -98,7 +100,7 @@ it('clears materials and unsaved drafts after confirmed reset, including a late 
   })
   vi.stubGlobal('fetch', fetch)
   render(<App />)
-  fireEvent.click(await screen.findByText('第一份.pdf'))
+  await openMaterial('第一份.pdf')
   fireEvent.change(await screen.findByLabelText('个人笔记'), { target: { value: 'erase my draft' } })
   fireEvent.click(screen.getByText('保存笔记'))
   fireEvent.click(screen.getByText('系统设置'))
@@ -122,14 +124,14 @@ it('keeps the current draft if reset fails', async () => {
     return new Response(JSON.stringify(url === '/api/directory' ? directory() : [{ id: 'page-a', number: 1, note: '', version: 0 }]))
   }))
   render(<App />)
-  fireEvent.click(await screen.findByText('第一份.pdf'))
+  await openMaterial('第一份.pdf')
   fireEvent.change(await screen.findByLabelText('个人笔记'), { target: { value: 'keep on failure' } })
   fireEvent.click(screen.getByText('系统设置'))
   fireEvent.click(screen.getByRole('button', { name: '清空全部数据' }))
   fireEvent.click(screen.getByRole('button', { name: '确认清空' }))
   await screen.findByRole('alert')
   await waitFor(() => expect((screen.getByLabelText('个人笔记') as HTMLTextAreaElement).value).toBe('keep on failure'))
-  expect(screen.getByText('1 页未保存')).toBeTruthy()
+  expect(screen.getByRole('button', { name: /1 页未保存|保存失败/ })).toBeTruthy()
   expect(screen.getByRole('alert').textContent).toContain('清空失败')
 })
 
@@ -143,9 +145,11 @@ it('moves the open material without reloading its pages or losing an unsaved dra
   })
   vi.stubGlobal('fetch', fetch)
   render(<App />)
-  fireEvent.click(await screen.findByText('第一份.pdf'))
+  await openMaterial('第一份.pdf')
   fireEvent.change(await screen.findByLabelText('个人笔记'), { target: { value: '移动中保持的草稿' } })
-  fireEvent.change(screen.getByLabelText('移动第一份.pdf到章节'), { target: { value: 'group:chapter' } })
+  await directoryAction('第一份.pdf', '移动到')
+  await chooseOption('移动第一份.pdf到章节', '第一章')
+  fireEvent.click(screen.getByRole('button', { name: /移\s*动/ }))
   await screen.findByText('目录已保存。')
   expect((screen.getByLabelText('个人笔记') as HTMLTextAreaElement).value).toBe('移动中保持的草稿')
   expect(fetch.mock.calls.filter(call => call[0] === '/api/materials/a/pages')).toHaveLength(1)
@@ -153,27 +157,27 @@ it('moves the open material without reloading its pages or losing an unsaved dra
   const body = JSON.parse(mutation[1]!.body as string)
   expect(body.revision).toBe(0)
   expect(body.material_ids.chapter).toEqual(['a'])
-  expect(screen.getByText('1 页未保存')).toBeTruthy()
+  expect(screen.getByRole('button', { name: /1 页未保存|保存失败/ })).toBeTruthy()
 })
 
 it('preserves the old directory and draft on stale order, then reloads the current directory', async () => {
   let reads = 0
   const initial = directory()
-  const fetch = vi.fn(async (url: string) => {
+  const fetch = vi.fn(async (url: string, options?: RequestInit) => {
+    if (options?.method === 'PUT' && url !== '/api/directory/order') return Response.json({ error: '保存失败' }, { status: 503 })
     if (url === '/api/directory/order') return new Response(JSON.stringify({ error: '目录已在其他窗口更新，请重新加载目录后再操作；笔记草稿仍保留。' }), { status: 409 })
     if (url === '/api/directory') return new Response(JSON.stringify(reads++ ? { ...initial, revision: 2, materials: [...materials].reverse() } : initial))
     return new Response(JSON.stringify([{ id: 'page-a', number: 1, note: '', version: 0 }]))
   })
   vi.stubGlobal('fetch', fetch)
   render(<App />)
-  fireEvent.click(await screen.findByText('第一份.pdf'))
+  await openMaterial('第一份.pdf')
   fireEvent.change(await screen.findByLabelText('个人笔记'), { target: { value: '冲突仍保留' } })
-  const menu = screen.getByLabelText('第一份.pdf的操作').parentElement!
-  fireEvent.click(menu.querySelectorAll('button')[2])
+  await directoryAction('第一份.pdf', '下移')
   await screen.findByText(/目录已在其他窗口更新/)
-  expect(screen.getByRole('navigation').querySelector('.material strong')?.textContent).toBe('第一份.pdf')
+  expect(screen.getByRole('navigation', { name: '课程结构' }).querySelector('.material strong')?.textContent).toBe('第一份.pdf')
   fireEvent.click(screen.getByText('重新加载'))
-  await waitFor(() => expect(screen.getByRole('navigation').querySelector('.material strong')?.textContent).toBe('第二份.pdf'))
+  await waitFor(() => expect(screen.getByRole('navigation', { name: '课程结构' }).querySelector('.material strong')?.textContent).toBe('第二份.pdf'))
   await waitFor(() => expect((screen.getByLabelText('个人笔记') as HTMLTextAreaElement).value).toBe('冲突仍保留'))
 })
 
@@ -187,10 +191,9 @@ it('shows saved note counts, cancels deletion, and clears only the confirmed mat
   })
   vi.stubGlobal('fetch', fetch)
   render(<App />)
-  fireEvent.click(await screen.findByText('第一份.pdf'))
+  await openMaterial('第一份.pdf')
   fireEvent.change(await screen.findByLabelText('个人笔记'), { target: { value: '删除的草稿' } })
-  const menu = screen.getByLabelText('第一份.pdf的操作').parentElement!
-  fireEvent.click(menu.querySelector('.deleteAction')!)
+  await directoryAction('第一份.pdf', '删除课件')
   const description = await screen.findByText(/3 条已保存笔记／问答/)
   expect(description.textContent).toContain('1 处未保存编辑')
   fireEvent.click(screen.getByRole('button', { name: '取消' }))
@@ -198,7 +201,7 @@ it('shows saved note counts, cancels deletion, and clears only the confirmed mat
   expect(fetch.mock.calls.some(call => call[1]?.method === 'DELETE')).toBe(false)
   expect((screen.getByLabelText('个人笔记') as HTMLTextAreaElement).value).toBe('删除的草稿')
   fireEvent.click(screen.getByText('保存笔记'))
-  fireEvent.click(menu.querySelector('.deleteAction')!)
+  await directoryAction('第一份.pdf', '删除课件')
   fireEvent.click(await screen.findByRole('button', { name: '确认删除' }))
   await screen.findByText('课件及其关联笔记已删除。')
   finishSave(new Response(JSON.stringify({ id: 'page-a', number: 1, note: '迟到保存', version: 1 })))
@@ -217,12 +220,10 @@ it('imports to the selected course and optional chapter only after explicit conf
   vi.stubGlobal('fetch', fetch)
   render(<App />)
   await screen.findByText('第一份.pdf')
-  fireEvent.click(screen.getByText('＋ 导入 PDF'))
-  fireEvent.mouseDown(screen.getByLabelText('导入到课程'))
-  fireEvent.click(await screen.findByRole('option', { name: '数据结构' }))
-  fireEvent.mouseDown(screen.getByLabelText('导入到章节'))
-  fireEvent.click(await within(screen.getByRole('dialog')).findByRole('option', { name: '第一章' }))
-  fireEvent.change(screen.getByLabelText('选择 PDF 课件'), { target: { files: [new File(['%PDF'], '新课件.pdf')] } })
+  fireEvent.click(screen.getByRole('button', { name: /^导入 PDF$/ }))
+  await chooseOption('导入到课程', '数据结构')
+  await chooseOption('导入到章节', '第一章')
+  fireEvent.change(document.querySelector('input[type="file"]')!, { target: { files: [new File(['%PDF'], '新课件.pdf')] } })
   expect(fetch.mock.calls.some(call => call[1]?.method === 'POST')).toBe(false)
   fireEvent.click(screen.getByText('确认导入'))
   await screen.findByLabelText('个人笔记')
@@ -243,7 +244,7 @@ it('creates a first course inside the import dialog and selects it for upload', 
   vi.stubGlobal('fetch', fetch)
   render(<App />)
   await screen.findByLabelText('收起未分类')
-  fireEvent.click(screen.getByText('＋ 导入 PDF'))
+  fireEvent.click(screen.getByRole('button', { name: /^导入 PDF$/ }))
   fireEvent.mouseDown(screen.getByLabelText('导入到课程'))
   expect((screen.getByRole('button', { name: '确认导入' }) as HTMLButtonElement).disabled).toBe(true)
   fireEvent.change(screen.getByLabelText('新课程名称'), { target: { value: '数据结构' } })
@@ -269,13 +270,13 @@ it('keeps the open editor and draft after material deletion fails', async () => 
     return new Response(JSON.stringify(url === '/api/directory' ? directory() : [{ id: 'page-a', number: 1, note: '', version: 0 }]))
   }))
   render(<App />)
-  fireEvent.click(await screen.findByText('第一份.pdf'))
+  await openMaterial('第一份.pdf')
   fireEvent.change(await screen.findByLabelText('个人笔记'), { target: { value: '失败保留' } })
-  fireEvent.click(screen.getByLabelText('第一份.pdf的操作').parentElement!.querySelector('.deleteAction')!)
+  await directoryAction('第一份.pdf', '删除课件')
   fireEvent.click(await screen.findByRole('button', { name: '确认删除' }))
   await screen.findByText('删除失败')
   expect((screen.getByLabelText('个人笔记') as HTMLTextAreaElement).value).toBe('失败保留')
-  expect(screen.getByText('1 页未保存')).toBeTruthy()
+  expect(screen.getByRole('button', { name: /1 页未保存|保存失败/ })).toBeTruthy()
   expect(localStorage.length).toBeGreaterThan(0)
 })
 
@@ -304,7 +305,7 @@ it('follows live system changes unless an explicit display mode is selected', as
   vi.stubGlobal('fetch', vi.fn(async (url: string) => Response.json(url === '/api/status'
     ? { status: 'ok', started_at: '2026-11-05T00:00:00Z' } : url === '/api/directory' ? directory() : [{ id: 'p1', number: 1, note: '', version: 0 }])))
   render(<App />)
-  fireEvent.click(await screen.findByText('第一份.pdf'))
+  await openMaterial('第一份.pdf')
   const editor = await screen.findByLabelText('个人笔记') as HTMLTextAreaElement
   fireEvent.change(editor, { target: { value: '切换时保留草稿' } })
   expect(document.documentElement.dataset.theme).toBe('dark')
@@ -321,6 +322,7 @@ it('follows live system changes unless an explicit display mode is selected', as
 })
 
 it('hydrates the stored dark theme directly and batches a later change in one view transition', async () => {
+  vi.spyOn(window, 'matchMedia').mockImplementation(query => Object.assign(new EventTarget(), { media: query, matches: false, onchange: null, addListener() {}, removeListener() {} }))
   localStorage.setItem('slide-notes:display-mode', 'dark')
   const start = vi.fn((update: () => void) => ({ finished: Promise.resolve().then(update), skipTransition: vi.fn() }))
   Object.defineProperty(document, 'startViewTransition', { configurable: true, value: start })
@@ -349,28 +351,27 @@ it('opens the narrow directory as a drawer and keeps the selected page on screen
     : [{ id: 'p1', number: 1, note: '已保存', version: 1 }])))
   render(<App />)
   await screen.findByText('从一份课件开始')
-  expect(screen.queryByRole('navigation')).toBeNull()
+  expect(screen.queryByRole('navigation', { name: '课程结构' })).toBeNull()
   fireEvent.click(screen.getByLabelText('展开目录'))
-  fireEvent.click(await screen.findByText('第一份.pdf'))
+  await openMaterial('第一份.pdf')
   await screen.findByText('PDF 第 1 页')
   await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
   expect(screen.getByLabelText('暂无保存记录')).toBeTruthy()
 })
 
-it('keeps a background conflict visible after another save succeeds and returns from a hidden page', async () => {
+it('keeps a background conflict visible after another save succeeds and returns to the original material', async () => {
   let finish!: (r: Response) => void
-  const a = { id: 'page-a', number: 1, note: '', version: 0, display: 'hidden' }
+  const a = { id: 'page-a', number: 1, note: '', version: 0, display: 'normal' }
   const b = { id: 'page-b', number: 1, note: '', version: 0 }
   vi.stubGlobal('fetch', vi.fn(async (url: string, options?: RequestInit) => {
     if (options?.method === 'PUT') return url.includes('page-a') ? new Promise<Response>(r => { finish = r }) : Response.json({ ...b, version: 1 })
     return Response.json(url === '/api/directory' ? directory() : [url.includes('/a/') ? a : b])
   }))
   render(<App />)
-  fireEvent.click(await screen.findByText('第一份.pdf'))
-  fireEvent.click(await screen.findByText('显示全部页面'))
-  fireEvent.change(screen.getByLabelText('个人笔记'), { target: { value: '本地版本' } })
+  await openMaterial('第一份.pdf')
+  fireEvent.change(await screen.findByLabelText('个人笔记'), { target: { value: '本地版本' } })
   fireEvent.click(screen.getByText('保存笔记'))
-  fireEvent.click(screen.getByText('第二份.pdf'))
+  await openMaterial('第二份.pdf')
   await screen.findByLabelText('个人笔记')
   await act(async () => finish(Response.json({ error: '冲突', current: { ...a, note: '远端版本', version: 1 } }, { status: 409 })))
   fireEvent.change(screen.getByLabelText('个人笔记'), { target: { value: '另一页成功' } })

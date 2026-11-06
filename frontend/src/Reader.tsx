@@ -1,53 +1,38 @@
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type FormEvent, type RefObject } from 'react'
+import { Button, Empty, InputNumber, Segmented, Select, Space, Tooltip } from 'antd'
+import { DownOutlined, LeftOutlined, RightOutlined } from '@ant-design/icons'
+import { createPortal } from 'react-dom'
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type RefObject } from 'react'
 import type { PDFDocumentProxy } from 'pdfjs-dist'
 import { api, ApiError, type Page, type PageSettings } from './api'
 import { DraftStore } from './drafts'
 import { NoteEditor, NotePreview } from './NoteEditor'
 import { Divider, useLayoutSize } from './ReadingControls'
 import { PdfPage } from './PdfPage'
-import { categories, closestPage, rangePages, visiblePages, type Mode } from './reading'
+import { closestPage, type Mode } from './reading'
 
 type Props = {
   materialId: string; pages: Page[]; pdf: PDFDocumentProxy; store: DraftStore
   mode: Mode; onMode: (mode: Mode) => void; onSettings: (settings: PageSettings[]) => void
   onNotice: (message: string) => void; onFailure: (message: string) => void
-  reader: RefObject<HTMLElement | null>
+  reader: RefObject<HTMLElement | null>; pageNavigator: RefObject<HTMLDivElement | null>
 }
-export function Reader({ materialId, pages, pdf, store, mode, onMode, onSettings, reader, onNotice, onFailure }: Props) {
+export function Reader({ materialId, pages, pdf, store, mode, onMode, onSettings, reader, pageNavigator, onNotice, onFailure }: Props) {
   const [layout, setLayout] = useState<'continuous' | 'single'>('continuous')
   const [current, setCurrent] = useState(1)
-  const [category, setCategory] = useState('')
-  const [showHidden, setShowHidden] = useState(false)
-  const [includeCollapsed, setIncludeCollapsed] = useState(false)
-  const [expanded, setExpanded] = useState<Set<string>>(new Set())
-  const toolsBar = useRef<HTMLDivElement>(null)
-  const batchPanel = useRef<HTMLDetailsElement>(null)
-  useEffect(() => {
-    function dismiss(event: PointerEvent | KeyboardEvent) {
-      if (event instanceof KeyboardEvent && event.key !== 'Escape') return
-      for (const panel of toolsBar.current?.querySelectorAll<HTMLDetailsElement>('details[open]') ?? []) {
-        if (event instanceof KeyboardEvent) panel.querySelector('summary')?.focus()
-        else if (event.target instanceof Node && panel.contains(event.target)) continue
-        panel.open = false
-      }
-    }
-    document.addEventListener('pointerdown', dismiss)
-    document.addEventListener('keydown', dismiss)
-    return () => { document.removeEventListener('pointerdown', dismiss); document.removeEventListener('keydown', dismiss) }
-  }, [])
-  const [range, setRange] = useState('')
-  const [batchCategory, setBatchCategory] = useState('')
-  const [batchDisplay, setBatchDisplay] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [batchError, setBatchError] = useState('')
+  const [saving, setSaving] = useState<string | null>(null)
+  const [pageDraft, setPageDraft] = useState<number | string | null>(null)
+  const [editingPage, setEditingPage] = useState(false)
   const split = useLayoutSize('slide-notes:pdf-percent', 60, 30, 72)
   const [zoom, setZoom] = useState(1)
   const [fit, setFit] = useState(false)
   const single = mode === 'immerse' || (mode === 'review' && layout === 'single')
-  const shown = visiblePages(pages, category, showHidden, single, includeCollapsed)
+  const shown = pages
   const active = shown.find(page => page.number === current) ?? closestPage(shown, current)
   const anchor = useRef<{ number: number; offset: number } | null>(null)
   const rows = useRef(new Map<string, HTMLElement>())
+  useEffect(() => {
+    if (!editingPage) setPageDraft(active?.number ?? null)
+  }, [active?.number, editingPage])
 
   function capture() {
     const root = reader.current
@@ -68,6 +53,11 @@ export function Reader({ materialId, pages, pdf, store, mode, onMode, onSettings
     if (!single) rows.current.get(target.id)?.scrollIntoView?.({ block: 'start' })
     else if (reader.current) reader.current.scrollTop = 0
   }
+  function submitPage() {
+    const number = Number(pageDraft)
+    if (Number.isInteger(number) && number >= 1 && number <= pages.length) navigate(number)
+    setEditingPage(false)
+  }
   function transition(change: () => void) { capture(); change() }
   function restorePosition() {
     if (single || !anchor.current) return
@@ -79,7 +69,7 @@ export function Reader({ materialId, pages, pdf, store, mode, onMode, onSettings
   useLayoutEffect(() => {
     if (single) { if (active) setCurrent(active.number); if (reader.current) reader.current.scrollTop = 0; return }
     restorePosition()
-  }, [mode, layout, category, showHidden, includeCollapsed])
+  }, [mode, layout])
   useEffect(() => {
     if (single || typeof ResizeObserver === 'undefined') return
     const root = reader.current
@@ -103,9 +93,10 @@ export function Reader({ materialId, pages, pdf, store, mode, onMode, onSettings
     if (!single) return
     const key = (event: KeyboardEvent) => {
       if (reader.current?.inert || event.defaultPrevented || event.isComposing || event.keyCode === 229 || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return
-      const protectedSelector = 'input, textarea, select, [contenteditable]:not([contenteditable="false"]), dialog, [role="dialog"], [role="textbox"], [role="combobox"], [role="spinbutton"], [role="slider"], [role="separator"], [role="listbox"]'
+      const protectedSelector = 'input, textarea, select, [contenteditable]:not([contenteditable="false"]), dialog, [role="dialog"], [role="textbox"], [role="combobox"], [role="spinbutton"], [role="slider"], [role="separator"], [role="listbox"], [role="tablist"], [role="radiogroup"], [role="menu"], .ant-segmented'
       const protectedFocus = (element: EventTarget | null) => element instanceof Element && !!element.closest(protectedSelector)
       if (protectedFocus(event.target) || protectedFocus(document.activeElement)) return
+      if (document.querySelector('.ant-dropdown:not(.ant-dropdown-hidden), .ant-select-dropdown:not(.ant-select-dropdown-hidden), .ant-modal-wrap:not([style*="display: none"])')) return
       const direction = ['ArrowRight', 'ArrowDown'].includes(event.key) ? 1 : ['ArrowLeft', 'ArrowUp'].includes(event.key) ? -1 : 0
       if (!direction) return
       const index = shown.findIndex(page => page.id === active?.id)
@@ -115,73 +106,48 @@ export function Reader({ materialId, pages, pdf, store, mode, onMode, onSettings
     window.addEventListener('keydown', key)
     return () => window.removeEventListener('keydown', key)
   }, [single, active?.id, shown.map(page => page.id).join(',')])
-  async function saveSettings(targets: Page[], changes: object, batch = false) {
-    if (busy || mode === 'review') return
-    setBusy(true); setBatchError('')
+  async function togglePage(page: Page) {
+    if (saving) return
+    setSaving(page.id)
     try {
-      const result = await api<PageSettings[]>(`/api/materials/${materialId}/page-settings`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pages: targets.map(page => ({ id: page.id, version: page.settings_version ?? 0 })), ...changes }) })
+      const result = await api<PageSettings[]>(`/api/materials/${materialId}/page-settings`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pages: [{ id: page.id, version: page.settings_version ?? 0 }], display: page.display === 'collapsed' ? 'normal' : 'collapsed' }) })
       onSettings(result)
-      if (batch && batchPanel.current) {
-        batchPanel.current.open = false
-        batchPanel.current.querySelector('summary')?.focus()
-      }
-      onNotice('页面属性已保存，原始页码与笔记保留。')
     } catch (cause) {
-      const report = batch && batchPanel.current?.open ? setBatchError : onFailure
-      report(cause instanceof Error ? cause.message : '页面属性保存失败，请重试。')
+      onFailure(cause instanceof Error ? cause.message : '页面显示状态保存失败，请重试。')
       if (cause instanceof ApiError && cause.status === 409) {
         try { onSettings(await api<PageSettings[]>(`/api/materials/${materialId}/pages`)) }
-        catch { report('属性冲突且刷新失败，请重新加载课件后重试。笔记草稿仍保留。') }
+        catch { onFailure('状态冲突且刷新失败，请重新加载课件后重试。笔记草稿仍保留。') }
       }
-    } finally { setBusy(false) }
+    } finally { setSaving(null) }
   }
-  function applyBatch(event: FormEvent) {
-    event.preventDefault()
-    try {
-      const targets = rangePages(pages, range)
-      if (!batchCategory && !batchDisplay) throw new Error('请选择要修改的分类或显示状态。')
-      const changes: { category?: string; display?: string } = {}
-      if (batchCategory) changes.category = batchCategory
-      if (batchDisplay) changes.display = batchDisplay
-      void saveSettings(targets, changes, true)
-    } catch (cause) {
-      setBatchError((cause as Error).message)
-    }
-  }
-  const settings = (page: Page) => mode !== 'review' && <div className="pageSettings"><label>分类<select aria-label={`第 ${page.number} 页分类`} disabled={busy} value={page.category ?? '正文'} onChange={event => void saveSettings([page], { category: event.target.value })}>{categories.map(value => <option key={value}>{value}</option>)}</select></label><label>显示<select aria-label={`第 ${page.number} 页显示状态`} disabled={busy} value={page.display ?? 'normal'} onChange={event => void saveSettings([page], { display: event.target.value })}><option value="normal">正常</option><option value="collapsed">折叠</option><option value="hidden">隐藏</option></select></label></div>
   const rendered = single ? (active ? [active] : []) : shown
+  const pageIndicator = <div className="topPageNavigator" aria-label="当前页码">
+    <InputNumber aria-label="跳转页码" min={1} max={pages.length} precision={0} controls={false} value={editingPage ? pageDraft : active?.number ?? null}
+      onFocus={() => setEditingPage(true)} onChange={value => setPageDraft(value)} onPressEnter={submitPage}
+      onBlur={() => { setEditingPage(false); setPageDraft(active?.number ?? null) }}
+      onKeyDown={event => { if (event.key === 'Escape') { setEditingPage(false); setPageDraft(active?.number ?? null); event.currentTarget.blur() } }} />
+    <span aria-hidden="true">/ {pages.length}</span>
+  </div>
   return <>
-    <div className="readingTools" ref={toolsBar} aria-label="阅读工具">
-      {mode === 'immerse' && <button onClick={() => transition(() => onMode('organize'))}>退出沉浸</button>}
-      {mode === 'review' && <><strong>只读复习</strong><button aria-pressed={!single} onClick={() => transition(() => setLayout('continuous'))}>连续阅读</button><button aria-pressed={single} onClick={() => transition(() => setLayout('single'))}>单页阅读</button></>}
-      <details name="reader-tools" className="filterTools"><summary>筛选 · {category || '全部分类'}{showHidden && ' · 含隐藏页'}{single && includeCollapsed && ' · 含折叠页'}</summary><div className="filterFields">
-      <label>分类筛选<select aria-label="分类筛选" value={category} onChange={event => transition(() => setCategory(event.target.value))}><option value="">全部分类</option>{categories.map(value => <option key={value}>{value}</option>)}</select></label>
-      <label><input type="checkbox" checked={showHidden} onChange={event => transition(() => setShowHidden(event.target.checked))} />显示隐藏页</label>
-      {single && <label><input type="checkbox" checked={includeCollapsed} onChange={event => transition(() => setIncludeCollapsed(event.target.checked))} />包含折叠页</label>}
-      </div></details>
-      <span role="status">当前第 {active?.number ?? '—'} 页 · 跳过 {pages.length - shown.length} 页</span>
-      <label>跳转页码<input aria-label="跳转页码" type="number" min="1" max={pages.length} value={active?.number ?? ''} onChange={event => navigate(Number(event.target.value))} /></label>
-      {single && <><small>← / ↑ 上一页 · → / ↓ 下一页</small><button disabled={!active || shown[0]?.id === active.id} onClick={() => navigate(shown[shown.indexOf(active!) - 1].number)}>上一页</button><button disabled={!active || shown.at(-1)?.id === active.id} onClick={() => navigate(shown[shown.indexOf(active!) + 1].number)}>下一页</button><label>缩放<select aria-label="课件缩放" value={fit ? 'fit' : zoom} onChange={event => { setFit(event.target.value === 'fit'); if (event.target.value !== 'fit') setZoom(Number(event.target.value)) }}><option value="fit">适应页面</option>{[0.75, 1, 1.25, 1.5, 2].map(value => <option key={value} value={value}>{value * 100}%</option>)}</select></label></>}
-      {mode !== 'review' && <details name="reader-tools" ref={batchPanel} className="batchPanel">
-        <summary>批量操作</summary>
-        <form className="batchTools" onSubmit={applyBatch}>
-          <label>批量页码<input aria-label="批量页码" placeholder="1-3,5（原始页码）" value={range} onChange={e => setRange(e.target.value)} /></label>
-          <label>批量分类<select aria-label="批量分类" value={batchCategory} onChange={e => setBatchCategory(e.target.value)}>
-            <option value="">保持分类</option>{categories.map(value => <option key={value}>{value}</option>)}
-          </select></label>
-          <label>批量显示<select aria-label="批量显示" value={batchDisplay} onChange={e => setBatchDisplay(e.target.value)}>
-            <option value="">保持显示状态</option><option value="normal">正常</option><option value="collapsed">折叠</option><option value="hidden">隐藏</option>
-          </select></label>
-          <button disabled={busy}>应用到页码范围</button>
-          {batchError && <small role="alert" className="error">{batchError}</small>}
-        </form>
-      </details>}
+    {pageNavigator.current && createPortal(pageIndicator, pageNavigator.current)}
+    <div className="readingTools" aria-label="阅读工具">
+      {mode === 'immerse' && <Button onClick={() => transition(() => onMode('organize'))}>退出沉浸</Button>}
+      {mode === 'review' && <><strong>只读复习</strong><Segmented aria-label="阅读布局" value={layout} options={[{ label: '连续阅读', value: 'continuous' }, { label: '单页阅读', value: 'single' }]} onChange={value => transition(() => setLayout(value as 'continuous' | 'single'))} /></>}
+      {single && <><small>← / ↑ 上一页 · → / ↓ 下一页</small><Space.Compact>
+        <Button icon={<LeftOutlined />} disabled={!active || shown[0]?.id === active.id} onClick={() => navigate(shown[shown.indexOf(active!) - 1].number)}>上一页</Button>
+        <Button icon={<RightOutlined />} disabled={!active || shown.at(-1)?.id === active.id} onClick={() => navigate(shown[shown.indexOf(active!) + 1].number)}>下一页</Button>
+      </Space.Compact><label>缩放<Select aria-label="课件缩放" value={fit ? 'fit' : zoom} options={[{ value: 'fit', label: '适应页面' }, ...[0.75, 1, 1.25, 1.5, 2].map(value => ({ value, label: `${value * 100}%` }))]} onChange={value => { setFit(value === 'fit'); if (value !== 'fit') setZoom(Number(value)) }} /></label></>}
     </div>
-    {busy && <p role="status">正在保存页面属性…</p>}
-    {!shown.length && <div className="emptyState"><p>没有符合条件的页面，笔记与原始页码仍保留。</p><button onClick={() => { setCategory(''); setShowHidden(true); setIncludeCollapsed(true) }}>显示全部页面</button></div>}
+    {!pages.length && <Empty description="课件中没有页面。" />}
     {rendered.map(page => <article className="pageRow" key={page.id} data-number={page.number} ref={element => { if (element) rows.current.set(page.id, element); else rows.current.delete(page.id) }}>
-      <div className="pageLabel"><strong>第 {page.number} 页</strong><span>{page.category ?? '正文'} · {page.display === 'hidden' ? '隐藏' : page.display === 'collapsed' ? '折叠' : '正常'}</span>{settings(page)}{!single && page.display === 'collapsed' && <button aria-expanded={expanded.has(page.id)} onClick={() => setExpanded(old => { const next = new Set(old); if (next.has(page.id)) next.delete(page.id); else next.add(page.id); return next })}>{expanded.has(page.id) ? '收起页面' : '临时展开'}</button>}</div>
-      {(single || page.display !== 'collapsed' || expanded.has(page.id)) && <div className={`pageColumns ${single ? 'singlePage' : ''}`} style={{ '--pdf-width': split.value + '%' } as CSSProperties}><PdfPage pdf={pdf} number={page.number} zoom={single ? zoom : 1} fit={single && fit} /><Divider label={`第 ${page.number} 页课件宽度`} size={split} percent />{mode === 'review' ? <NotePreview page={page} store={store} /> : <NoteEditor page={page} store={store} />}</div>}
+      <div className="pageLabel">
+        <Tooltip title={page.display === 'collapsed' ? '展开页面' : '折叠页面'}>
+          <Button type="text" size="small" className="pageFoldToggle" aria-label={`${page.display === 'collapsed' ? '展开' : '折叠'}第 ${page.number} 页`} aria-expanded={page.display !== 'collapsed'} disabled={!!saving} loading={saving === page.id}
+            icon={page.display === 'collapsed' ? <RightOutlined /> : <DownOutlined />} onClick={() => void togglePage(page)} />
+        </Tooltip>
+        <strong>第 {page.number} 页</strong>
+      </div>
+      <div className="pageReveal" data-collapsed={page.display === 'collapsed'}><div inert={page.display === 'collapsed'} className={`pageColumns ${single ? 'singlePage' : ''}`} style={{ '--pdf-width': split.value + '%' } as CSSProperties}><PdfPage pdf={pdf} number={page.number} zoom={single ? zoom : 1} fit={single && fit} /><Divider label={`第 ${page.number} 页课件宽度`} size={split} percent />{mode === 'review' ? <NotePreview page={page} store={store} /> : <NoteEditor page={page} store={store} onNotice={onNotice} onFailure={onFailure} />}</div></div>
     </article>)}
   </>
 }

@@ -1,6 +1,6 @@
 import { Children, isValidElement, useState, type ReactNode } from 'react'
-import { Popconfirm } from 'antd'
-import { ripple } from './ReadingControls'
+import { Alert, Button, Collapse, Input, Popconfirm, Segmented } from 'antd'
+import { DeleteOutlined, PlusOutlined, RightOutlined, } from '@ant-design/icons'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
@@ -20,31 +20,41 @@ export function MarkdownPreview({ text }: { text: string }) {
 }
 function Fold({ title, info, children, defaultOpen = false }: { title: string; info: string; children: ReactNode; defaultOpen?: boolean }) {
   const [open, setOpen] = useState(defaultOpen)
-  return <section className="noteSection"><button className="foldHeading" aria-expanded={open} onClick={e => { ripple(e); setOpen(!open) }}><strong>{title}</strong><small>{info}</small><span className="foldArrow" aria-hidden="true">{open ? '▾' : '▸'}</span></button><div className="foldBody" data-open={open} inert={!open} aria-hidden={!open}><div className="foldClip"><div className="foldContent">{children}</div></div></div></section>
+  return <section className="noteSection"><Collapse ghost bordered={false} size="small" activeKey={open ? ['body'] : []} onChange={keys => setOpen(keys.length > 0)} destroyOnHidden={false}
+    expandIcon={({ isActive }) => <RightOutlined aria-hidden="true" rotate={isActive ? 90 : 0} />}
+    items={[{ key: 'body', label: <span className="noteTitle"><strong>{title}</strong><small>{info}</small></span>, forceRender: true,
+      children: <div inert={!open} aria-hidden={!open}>{children}</div> }]} /></section>
 }
 function Field({ label, value, onChange, onSave, readOnly = false }: { label: string; value: string; onChange: (value: string) => void; onSave: () => void; readOnly?: boolean }) {
   const [preview, setPreview] = useState(false)
-  return <div className="markdownField"><div className="fieldHeading"><label>{label === 'AI 总结' ? '可粘贴 AI 总结' : label === '个人笔记' ? '在这里写下你的笔记' : label}</label><button aria-label={`${label}${preview ? '编辑' : '预览'}`} aria-pressed={preview} onClick={() => setPreview(!preview)}>{preview ? '编辑' : '预览'}</button></div>{preview ? <MarkdownPreview text={value} /> : <textarea aria-label={label} readOnly={readOnly} value={value} placeholder="支持Markdown样式" onChange={event => onChange(event.target.value)} onKeyDown={event => { if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 's') { event.preventDefault(); onSave() } }} />}</div>
+  return <div className="markdownField"><div className="fieldHeading"><span className="fieldCaption">{label === 'AI 总结' || label === '个人笔记' ? '支持 Markdown' : label}</span><Segmented size="small" aria-label={`${label}显示方式`} value={preview ? 'preview' : 'edit'} options={[{ label: '编辑', value: 'edit' }, { label: '预览', value: 'preview' }]} onChange={value => setPreview(value === 'preview')} /></div><div className="editorCanvas" data-preview={preview}>{preview ? <MarkdownPreview text={value} /> : <Input.TextArea variant="borderless" autoSize={{ minRows: 4, maxRows: 20 }} aria-label={label} readOnly={readOnly} value={value} placeholder={label === 'AI 总结' ? '粘贴总结，或记录这页的要点…' : label === '个人笔记' ? '写下你的理解、疑问或补充…' : '在这里输入内容…'} onChange={event => onChange(event.target.value)} onKeyDown={event => { if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 's') { event.preventDefault(); onSave() } }} />}</div></div>
 }
-function SaveState({ entry, store, label }: { entry: Entry; store: DraftStore; label: string }) {
+function SaveState({ entry, store }: { entry: Entry; store: DraftStore; label: string }) {
   const dirty = store.dirty(entry)
   if (!entry.edited && !dirty && !entry.recovered && !entry.error) return null
-  return <><div className="noteFooter"><span role="status" className={entry.error && !entry.pending ? 'saveError' : dirty || entry.conflict ? 'unsaved' : 'saved'}>{entry.pending ? '保存中…' : entry.conflict ? '版本冲突' : entry.error ? '保存失败' : dirty ? '未保存' : '已保存'}</span><button disabled={!dirty || entry.pending || !!entry.conflict || entry.missing} onClick={() => void store.save(entry)}>{entry.error ? '重试保存' : `保存${label}`}</button></div>{entry.recovered && <p className="recoveryNotice">已恢复本地草稿。</p>}{entry.error && <p role="alert" className="error">{entry.error}</p>}{entry.conflict && <div className="conflictBox"><p>服务器已有新版本，你的草稿仍保留。请对比后选择：</p><pre>{entry.conflict.value.deleted ? '此问答已在另一窗口删除。' : Object.values(entry.conflict.value).filter(value => typeof value === 'string').join('\n\n')}</pre><Popconfirm title="丢弃本地草稿，使用服务器版本？" okText="确认" cancelText="取消" onConfirm={() => store.resolve(entry, false)}><button>使用服务器版本</button></Popconfirm>{!entry.conflict.value.deleted && <Popconfirm title="以当前草稿覆盖上方服务器版本？" okText="确认" cancelText="取消" onConfirm={() => store.resolve(entry, true)}><button>保留草稿并重新保存</button></Popconfirm>}<p>可先复制输入框内容备份；已删除问答不能覆盖恢复。</p></div>}{entry.missing && <Popconfirm title="丢弃此草稿？请先复制需要保留的内容。" okText="确认" cancelText="取消" onConfirm={() => store.discard(entry)}><button>丢弃失效草稿</button></Popconfirm>}</>
+  return <>{entry.recovered && <Alert type="info" showIcon title="已恢复本地草稿。" />}{entry.error && <Alert type="error" showIcon title={entry.error} />}{entry.conflict && <Alert className="conflictBox" type="warning" showIcon title="服务器已有新版本，你的草稿仍保留。请对比后选择：" description={<><pre>{entry.conflict.value.deleted ? '此问答已在另一窗口删除。' : Object.values(entry.conflict.value).filter(value => typeof value === 'string').join('\n\n')}</pre><Popconfirm title="丢弃本地草稿，使用服务器版本？" okText="确认" cancelText="取消" onConfirm={() => store.resolve(entry, false)}><Button>使用服务器版本</Button></Popconfirm>{!entry.conflict.value.deleted && <Popconfirm title="以当前草稿覆盖上方服务器版本？" okText="确认" cancelText="取消" onConfirm={() => store.resolve(entry, true)}><Button>保留草稿并重新保存</Button></Popconfirm>}<p>可先复制输入框内容备份；已删除问答不能覆盖恢复。</p></>} />}{entry.missing && <Popconfirm title="丢弃此草稿？请先复制需要保留的内容。" okText="确认" cancelText="取消" onConfirm={() => store.discard(entry)}><Button>丢弃失效草稿</Button></Popconfirm>}</>
 }
-export function NoteEditor({ page, store, focusKind }: { page: Pick<Page, 'id' | 'number'>; store: DraftStore; focusKind?: Entry['kind'] }) {
+export function NoteEditor({ page, store, focusKind, onNotice, onFailure }: { page: Pick<Page, 'id' | 'number'>; store: DraftStore; focusKind?: Entry['kind']; onNotice?: (message: string) => void; onFailure?: (message: string) => void }) {
   const entries = Object.values(store.entries).filter(entry => entry.pageId === page.id)
   const note = entries.find(entry => entry.kind === 'note')
   const summary = entries.find(entry => entry.kind === 'summary')
   const qa = entries.filter(entry => entry.kind === 'qa' && (!entry.value.deleted || store.dirty(entry) || entry.pending || entry.conflict || entry.error))
   if (!note || !summary) return null
+  async function deleteQA(entry: Entry) {
+    store.edit(entry, { ...entry.value, deleted: true })
+    await store.save(entry)
+    if (entry.conflict) onFailure?.('删除问答时发生版本冲突，请先处理冲突后重试。')
+    else if (entry.error) onFailure?.('删除问答失败：' + entry.error)
+    else onNotice?.('问答已删除。')
+  }
   return <div className="notePanel" aria-label={`第 ${page.number} 页笔记`}>
-    <Fold defaultOpen title="AI 解释与总结" info={summary.value.summary ? '已有内容' : '暂无内容'}><Field readOnly={summary.missing} label="AI 总结" value={summary.value.summary ?? ''} onChange={text => store.edit(summary, { summary: text })} onSave={() => void store.save(summary)} /><SaveState entry={summary} store={store} label="总结" /></Fold>
-    <Fold defaultOpen={focusKind === 'note'} title="个人笔记" info={note.value.note ? '已有内容' : '暂无内容'}><Field readOnly={note.missing} label="个人笔记" value={note.value.note ?? ''} onChange={text => store.edit(note, { note: text })} onSave={() => void store.save(note)} /><SaveState entry={note} store={store} label="笔记" /></Fold>
-    <Fold defaultOpen={focusKind === 'qa'} title="追问与 AI 解答" info={`${qa.filter(entry => !entry.value.deleted).length} 条问答`}>{qa.map((entry, index) => <div className="qaEntry" data-entry={entry.url} key={entry.id}><div className="qaHeading"><strong>问答 {index + 1}</strong><Popconfirm title="确定删除本问答？" okText="删除" cancelText="取消" trigger={['hover', 'click']}
-      disabled={!!entry.value.deleted || !!entry.conflict || entry.missing} onConfirm={() => store.edit(entry, { ...entry.value, deleted: true })}>
-      <button aria-label="删除问答" disabled={!!entry.value.deleted || !!entry.conflict || entry.missing}>
-        <svg aria-hidden="true" width="16" viewBox="0 0 24 24" stroke="currentColor" fill="none" strokeWidth="1.7"><path d="M3 6h18M9 6V3h6v3M6 6l1 15h10l1-15M10 9v8m4-8v8" /></svg>
-      </button></Popconfirm></div>{entry.value.deleted && <p>正在删除；失败时可重试。</p>}<Field readOnly={!!entry.value.deleted || entry.missing} label={`问题 ${index + 1}`} value={entry.value.question ?? ''} onChange={question => store.edit(entry, { ...entry.value, question })} onSave={() => void store.save(entry)} /><Field readOnly={!!entry.value.deleted || entry.missing} label={`回答 ${index + 1}`} value={entry.value.answer ?? ''} onChange={answer => store.edit(entry, { ...entry.value, answer })} onSave={() => void store.save(entry)} /><SaveState entry={entry} store={store} label="问答" /></div>)}<button className="addQA" onClick={() => { const entry = store.add(page.id, 'qa', crypto.randomUUID().replaceAll('-', ''), { question: '', answer: '', deleted: false }, 0); store.edit(entry, entry.value) }}>＋ 添加问答</button></Fold>
+    <Fold defaultOpen title="AI 解释与总结" info={summary.value.summary ? '' : '暂无内容'}><Field readOnly={summary.missing} label="AI 总结" value={summary.value.summary ?? ''} onChange={text => store.edit(summary, { summary: text })} onSave={() => void store.save(summary)} /><SaveState entry={summary} store={store} label="总结" /></Fold>
+    <Fold defaultOpen={focusKind === 'note'} title="个人笔记" info={note.value.note ? '' : '暂无内容'}><Field readOnly={note.missing} label="个人笔记" value={note.value.note ?? ''} onChange={text => store.edit(note, { note: text })} onSave={() => void store.save(note)} /><SaveState entry={note} store={store} label="笔记" /></Fold>
+    <Fold defaultOpen={focusKind === 'qa'} title="追问与 AI 解答" info={`${qa.filter(entry => !entry.value.deleted).length} 条问答`}>{qa.map((entry, index) => <div className="qaEntry" data-entry={entry.url} key={entry.id}><div className="qaHeading"><strong>问答 {index + 1}</strong><Popconfirm title="确定删除本问答？" okText="删除" cancelText="取消" trigger={['click']}
+      disabled={!!entry.value.deleted || !!entry.pending || !!entry.conflict || entry.missing} onConfirm={() => void deleteQA(entry)}>
+      <Button danger type="text" aria-label="删除问答" disabled={!!entry.value.deleted || !!entry.pending || !!entry.conflict || entry.missing}>
+        <DeleteOutlined aria-hidden="true" />
+      </Button></Popconfirm></div><Field readOnly={!!entry.value.deleted || entry.missing} label={`问题 ${index + 1}`} value={entry.value.question ?? ''} onChange={question => store.edit(entry, { ...entry.value, question })} onSave={() => void store.save(entry)} /><Field readOnly={!!entry.value.deleted || entry.missing} label={`回答 ${index + 1}`} value={entry.value.answer ?? ''} onChange={answer => store.edit(entry, { ...entry.value, answer })} onSave={() => void store.save(entry)} /><SaveState entry={entry} store={store} label="问答" /></div>)}<Button type="dashed" className="addQA" onClick={() => { const entry = store.add(page.id, 'qa', crypto.randomUUID().replaceAll('-', ''), { question: '', answer: '', deleted: false }, 0); store.edit(entry, entry.value) }}><PlusOutlined /> 添加问答</Button></Fold>
   </div>
 }
 
@@ -54,8 +64,8 @@ export function NotePreview({ page, store }: { page: Page; store: DraftStore }) 
   const summary = entries.find(entry => entry.kind === 'summary')
   const qa = entries.filter(entry => entry.kind === 'qa' && !entry.value.deleted)
   return <div className="notePanel" aria-label={`第 ${page.number} 页笔记预览`}>
-    <Fold defaultOpen title="AI 解释与总结" info={summary?.value.summary ? '已有内容' : '暂无内容'}><MarkdownPreview text={summary?.value.summary ?? ''} /></Fold>
-    <Fold defaultOpen title="个人笔记" info={note?.value.note ? '已有内容' : '暂无内容'}><MarkdownPreview text={note?.value.note ?? ''} /></Fold>
+    <Fold defaultOpen title="AI 解释与总结" info={summary?.value.summary ? '' : '暂无内容'}><MarkdownPreview text={summary?.value.summary ?? ''} /></Fold>
+    <Fold defaultOpen title="个人笔记" info={note?.value.note ? '' : '暂无内容'}><MarkdownPreview text={note?.value.note ?? ''} /></Fold>
     <Fold defaultOpen title="追问与 AI 解答" info={`${qa.length} 条问答`}>{qa.map((entry, index) => <div className="qaEntry" key={entry.id}><strong>问题 {index + 1}</strong><MarkdownPreview text={entry.value.question ?? ''} /><strong>回答 {index + 1}</strong><MarkdownPreview text={entry.value.answer ?? ''} /></div>)}</Fold>
   </div>
 }

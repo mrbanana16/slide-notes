@@ -78,7 +78,7 @@
 
 ## IDE 启动入口
 
-PyCharm 仅保留共享配置 [`run`](../.run/run.run.xml)，使用项目 Node.js 依次执行 `frontend/package.json` 的 `npm ci`、`npm run build`，两项成功后使用项目 Python 虚拟环境运行 `backend/run.py`，提供上述 `127.0.0.1:5001` 服务。旧 `frontend_ci`、`frontend_build` 已删除，旧 `backend_run` 已替换为 `run`；请停用旧配置和旧进程，重新运行 `run` 并刷新页面。代码更新后同样需停止当前服务并重新运行；单独构建前端不会更新运行中的后端。脚本路径、解释器要求、环境变量、端口及命令方式不变，Python 依赖仍需单独安装。IDE 设置及等效命令见 [README 本地运行](../README.md#本地运行)。启动自动执行尚未应用的迁移（当前 `0006`，为旧页新增正文／正常属性及独立版本）。后端成功绑定端口后通过 Python 标准库 `webbrowser` 调用系统默认浏览器打开首页，IDE 与命令启动均生效；绑定失败不调用浏览器，浏览器调用失败记录警告并继续提供服务。页面、静态资源路由和业务接口未变更。
+PyCharm 仅保留共享配置 [`run`](../.run/run.run.xml)，使用项目 Node.js 依次执行 `frontend/package.json` 的 `npm ci`、`npm run build`，两项成功后使用项目 Python 虚拟环境运行 `backend/run.py`，提供上述 `127.0.0.1:5001` 服务。旧 `frontend_ci`、`frontend_build` 已删除，旧 `backend_run` 已替换为 `run`；请停用旧配置和旧进程，重新运行 `run` 并刷新页面。代码更新后同样需停止当前服务并重新运行；单独构建前端不会更新运行中的后端。脚本路径、解释器要求、环境变量、端口及命令方式不变，Python 依赖仍需单独安装。IDE 设置及等效命令见 [README 本地运行](../README.md#本地运行)。启动自动执行尚未应用的迁移（当前 `0007`，移除分类并将旧隐藏页恢复显示，保留折叠状态与内容）。后端成功绑定端口后通过 Python 标准库 `webbrowser` 调用系统默认浏览器打开首页，IDE 与命令启动均生效；绑定失败不调用浏览器，浏览器调用失败记录警告并继续提供服务。页面、静态资源路由和业务接口未变更。
 
 ## 控制台诊断日志
 
@@ -94,7 +94,7 @@ PyCharm 仅保留共享配置 [`run`](../.run/run.run.xml)，使用项目 Node.j
 | GET | [http://127.0.0.1:5001/api/materials](http://127.0.0.1:5001/api/materials) | `list_materials` | 查询所有课件，按课程 ID、章节 ID、位置、ID 返回扁平列表；界面目录以 `/api/directory` 为准 | [App.tsx](../frontend/src/App.tsx) （兼容查询；当前界面使用 `/api/directory`） |
 | POST | [http://127.0.0.1:5001/api/materials](http://127.0.0.1:5001/api/materials) | `upload` | 按内容识别重复文件；重复时返回已有课件，否则校验并创建课件及每页笔记记录 | [App.tsx](../frontend/src/App.tsx) 的 `upload` |
 | GET | `http://127.0.0.1:5001/api/materials/{material_id}/pages` | `pages` | 按原始页码查询页面、总结、个人笔记与未删除问答 | [App.tsx](../frontend/src/App.tsx) 的课件加载 effect |
-| PATCH | `http://127.0.0.1:5001/api/materials/{material_id}/page-settings` | `page_settings.py` 的 `save_page_settings` | 单页／批量分类及显示状态，独立版本校验，整批事务保存 | `Reader.tsx` 的 `saveSettings` |
+| PATCH | `http://127.0.0.1:5001/api/materials/{material_id}/page-settings` | `page_settings.py` 的 `save_page_settings` | 单页折叠／显示，独立版本校验 | `Reader.tsx` 的 `togglePage` |
 | GET | `http://127.0.0.1:5001/api/materials/{material_id}/file` | `file` | 读取课件原始 PDF，供 PDF.js 展示 | [App.tsx](../frontend/src/App.tsx) 的 `getDocument` |
 | POST | [http://127.0.0.1:5001/api/reset](http://127.0.0.1:5001/api/reset) | `reset_all_data` | 确认后清空全部课件、笔记和上传文件并重建空数据库 | [App.tsx](../frontend/src/App.tsx) 的 `resetAllData` |
 | PUT | `http://127.0.0.1:5001/api/pages/{page_id}/note` | `save_note` | 按版本号保存个人笔记，防止旧版本覆盖 | [NoteEditor.tsx](../frontend/src/NoteEditor.tsx) 的保存状态组件及 `drafts.ts` 的 `save` |
@@ -148,7 +148,7 @@ PyCharm 仅保留共享配置 [`run`](../.run/run.run.xml)，使用项目 Node.j
 
 ```json
 [
-  {"id": "<page_id>", "number": 1, "category": "正文", "display": "normal", "settings_version": 0, "note": "", "version": 0, "summary": "", "summary_version": 0, "qa": []}
+  {"id": "<page_id>", "number": 1, "display": "normal", "settings_version": 0, "note": "", "version": 0, "summary": "", "summary_version": 0, "qa": []}
 ]
 ```
 
@@ -159,20 +159,19 @@ PyCharm 仅保留共享配置 [`run`](../.run/run.run.xml)，使用项目 Node.j
 代码：[page_settings.py](../backend/slide_notes/page_settings.py) 的 `register_page_settings`／`save_page_settings`。路径参数为课件 ID。
 
 ```json
-{"pages": [{"id": "<page_id>", "version": 0}], "category": "未讲内容", "display": "collapsed"}
+{"pages": [{"id": "<page_id>", "version": 0}], "display": "collapsed"}
 ```
 
-`pages` 为非空、不重复的页面 ID 与版本列表，所有页须属于路径课件；`version` 为页面 `settings_version`，须为非负整数（不接受布尔值）。请求仅允许 `pages`、`category`、`display`，后两者至少提供一个。分类枚举：正文、封面、目录、未讲内容、拓展知识、其他；显示枚举：`normal`、`collapsed`、`hidden`。省略某属性则保持原值；null／未知值无效。修改分类不隐式修改显示状态。
-
+`pages` 必须恰含一个页面的 ID 与版本；`version` 为非负整数 `settings_version`（不接受布尔值）。请求只接受 `pages`、`display`，显示状态仅支持 `normal`／`collapsed`；分类、hidden、多页批量请求均返回 400。三种模式均使用此接口持久保存折叠／展开。
 成功 200：按原始页码顺序返回本次修改页面的属性数组，每页 `settings_version` 加 1，即使值未改变亦递增。
 
 ```json
-[{"id": "<page_id>", "number": 1, "category": "未讲内容", "display": "collapsed", "settings_version": 1}]
+[{"id": "<page_id>", "number": 1, "display": "collapsed", "settings_version": 1}]
 ```
 
-400：字段、枚举、版本、空列表或重复页非法；404：课件不存在或任一页不存在／不属于该课件；409：任一版本过期，整批回滚并返回 `error` 和 `current`（该课件全部页面的最新属性数组）；500：服务异常。版本更新使用数据库条件匹配，发生冲突时已更新的页也回滚。前端冲突后 GET 页面列表，仅合并属性，核对后显式重试；普通保存失败保留原属性，可重新选择重试。
+400：字段、状态、版本或页面数量非法；404：课件或页面不存在／页面不属于课件；409：版本过期，返回 `error` 和 `current`（课件各页最新显示属性）；500：服务异常。条件更新失败不写入；前端读取最新显示状态后由用户重试，笔记草稿不替换。
 
-属性版本独立于目录版本、个人笔记、总结、问答版本；不改变 PDF 原文件、页码、页面 ID 或内容对象。折叠／隐藏只是属性，不删除页面。GET 页面列表及笔记／总结成功或冲突中的完整页面对象均带 `category`、`display`、`settings_version`。旧数据库经迁移 `0006` 得到正文／正常／版本 0。
+显示版本独立于笔记、总结、问答及目录版本，不改变 PDF、页码、页面 ID 或笔记。GET 页列表与完整页面对象返回 `display`、`settings_version`，不再返回 category。迁移 `0007` 移除分类列，将旧 hidden 改为 normal 并递增其显示版本，已有 collapsed 保留。
 
 ### GET /api/materials/{material_id}/file
 
@@ -201,7 +200,7 @@ PyCharm 仅保留共享配置 [`run`](../.run/run.run.xml)，使用项目 Node.j
 ```json
 {
   "error": "另一窗口已修改此页。你的内容仍保留，请复制备份后重新加载。",
-  "current": {"id": "<page_id>", "number": 1, "category": "正文", "display": "normal", "settings_version": 0, "note": "服务器已有笔记", "version": 1, "summary": "", "summary_version": 0, "qa": []}
+  "current": {"id": "<page_id>", "number": 1, "display": "normal", "settings_version": 0, "note": "服务器已有笔记", "version": 1, "summary": "", "summary_version": 0, "qa": []}
 }
 ```
 
@@ -268,8 +267,14 @@ PyCharm 仅保留共享配置 [`run`](../.run/run.run.xml)，使用项目 Node.j
 
 Flask 会为 GET 路由提供标准 HEAD 行为，并默认提供 OPTIONS 响应。后端为 `.mjs` 显式设置 `text/javascript`，不依赖 Windows 与 macOS 不同的本机 MIME 映射；PDF.js worker 可被浏览器按模块脚本加载。开发环境页面和 PDF 辅助资源由 Vite 提供，配置位置为 [vite.config.ts](../frontend/vite.config.ts)。
 
-页面分类及显示状态通过下述属性接口保存；模式／阅读布局／筛选／临时展开由前端管理，没有对应写接口。前端页面对应关系见 [前端页面列表](frontend-pages.md)，验证步骤见 [阶段四开发与验收记录](devlog/step4-reading-modes.md)。
+页面折叠／显示通过上述显示状态接口保存；模式与阅读布局由前端管理，无独立写接口。前端页面对应关系见 [前端页面列表](frontend-pages.md)，验证步骤见 [阶段四开发与验收记录](devlog/step4-reading-modes.md)。
 
 ### GET /api/status
 
 处理函数位于 `backend/slide_notes/__init__.py`。无参数或请求体。成功返回 200，例如 `{"status":"ok","started_at":"2026-11-05T02:00:00.000000+00:00"}`，响应禁止缓存。启动时间为本次应用实例创建时的 UTC 时间，刷新查询时保持一致。该接口只报告服务是否能够响应。后端离线时可能没有 HTTP 响应；顶栏断联重试也会查询此接口，成功后刷新目录并重试可恢复的保存请求。前端将连接失败、超时、非成功响应或无效响应显示为检测失败，允许手动重试。
+
+## 阶段 5.5 核对（2026-11-06）
+
+本次为前端主题、图标、导航、导入、阅读工具与笔记控件统一；后端请求方法、路径、参数、响应及页面／静态资源路由均未变更。启动配置／命令未变更，新增前端依赖需按锁文件安装并重新构建。
+
+阶段 5.5 Tree／笔记编辑区反馈迭代仍复用原目录事务与笔记保存接口，未新增或修改后端与静态资源路由。

@@ -3,6 +3,6 @@ if (!globalThis.ResizeObserver) {
 }
 if (!window.matchMedia) {
   window.matchMedia = query => Object.assign(new EventTarget(), {
-    media: query, matches: false, onchange: null, addListener() {}, removeListener() {},
+    media: query, matches: query === '(prefers-reduced-motion: reduce)', onchange: null, addListener() {}, removeListener() {},
   })
 }

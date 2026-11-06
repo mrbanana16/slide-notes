@@ -4,12 +4,10 @@ from sqlalchemy.orm import Session
 
 from .models import Material, Page
 
-CATEGORIES = ("正文", "封面", "目录", "未讲内容", "拓展知识", "其他")
-DISPLAYS = ("normal", "collapsed", "hidden")
-
+DISPLAYS = ("normal", "collapsed")
 
 def settings_json(page):
-    return {"id": page.id, "number": page.number, "category": page.category,
+    return {"id": page.id, "number": page.number,
             "display": page.display, "settings_version": page.settings_version}
 
 
@@ -17,14 +15,14 @@ def register_page_settings(app, engine):
     @app.patch("/api/materials/<material_id>/page-settings")
     def save_page_settings(material_id):
         body = request.get_json(silent=True)
-        if not isinstance(body, dict) or set(body) - {"pages", "category", "display"}:
-            return jsonify(error="请提供页面版本列表与分类或显示状态。"), 400
-        changes = {key: body[key] for key in ("category", "display") if key in body}
-        if not changes or ("category" in changes and changes["category"] not in CATEGORIES) or ("display" in changes and changes["display"] not in DISPLAYS):
-            return jsonify(error="分类或显示状态无效。"), 400
+        if not isinstance(body, dict) or set(body) - {"pages", "display"}:
+            return jsonify(error="请提供单页版本与折叠或显示状态。"), 400
+        if body.get("display") not in DISPLAYS:
+            return jsonify(error="页面状态仅支持 normal 或 collapsed。"), 400
+        changes = {"display": body["display"]}
         items = body.get("pages")
-        if not isinstance(items, list) or not items or any(not isinstance(item, dict) or set(item) != {"id", "version"} or not isinstance(item["id"], str) or type(item["version"]) is not int or item["version"] < 0 for item in items):
-            return jsonify(error="请提供非空页面列表及有效版本号。"), 400
+        if not isinstance(items, list) or len(items) != 1 or any(not isinstance(item, dict) or set(item) != {"id", "version"} or not isinstance(item["id"], str) or type(item["version"]) is not int or item["version"] < 0 for item in items):
+            return jsonify(error="请提供一个页面及有效版本号。"), 400
         ids = [item["id"] for item in items]
         if len(ids) != len(set(ids)):
             return jsonify(error="页面不能重复。"), 400
@@ -39,6 +37,6 @@ def register_page_settings(app, engine):
                 if result.rowcount != 1:
                     session.rollback()
                     current = list(session.scalars(select(Page).where(Page.material_id == material_id).order_by(Page.number)))
-                    return jsonify(error="另一窗口已修改页面属性，本次全部未保存。请核对最新属性后重试。", current=[settings_json(page) for page in current]), 409
+                    return jsonify(error="另一窗口已修改页面显示状态，本次未保存。请核对最新状态后重试。", current=[settings_json(page) for page in current]), 409
             session.commit()
             return jsonify([settings_json(page) for page in pages])

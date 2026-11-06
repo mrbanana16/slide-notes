@@ -1,5 +1,6 @@
-import { Alert, Button, Drawer, Modal, notification, Popover } from 'antd'
-import { Divider, PdfIcon, ripple, useLayoutSize } from './ReadingControls'
+import { ReadOutlined, UploadOutlined, SettingOutlined, MenuFoldOutlined, MenuUnfoldOutlined, FullscreenOutlined, FullscreenExitOutlined } from '@ant-design/icons'
+import { Alert, Badge, Breadcrumb, Divider as AntDivider, Empty, Spin, Tabs, Tag, Typography, Tooltip, Button, Drawer, Modal, notification, Popover } from 'antd'
+import { Divider, PdfIcon, useLayoutSize } from './ReadingControls'
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { getDocument, GlobalWorkerOptions, type PDFDocumentProxy } from 'pdfjs-dist'
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
@@ -65,6 +66,17 @@ export default function App() {
   const operation = useRef(false)
   const loadGeneration = useRef(0)
   const reader = useRef<HTMLElement>(null)
+  const toolbar = useRef<HTMLElement>(null)
+  const pageNavigator = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const header = toolbar.current
+    if (!header || typeof ResizeObserver === 'undefined') return
+    const update = () => reader.current?.style.setProperty('--toolbar-height', `${header.offsetHeight || 64}px`)
+    const observer = new ResizeObserver(update)
+    observer.observe(header)
+    update()
+    return () => observer.disconnect()
+  }, [])
   const dirtyCount = store.dirtyPages
 
   async function loadMaterials() {
@@ -222,10 +234,10 @@ export default function App() {
   }
 
   const directoryPanel = <>
-      <div className="brand"><span className="brandMark" aria-hidden="true">P</span><div><strong>slide-notes</strong><small>把理解留在每一页</small></div></div>
-      <div className="directoryImport"><button className="primary" disabled={readOnly || uploading || resetting || directoryBusy || loading} onClick={() => prepareImport()}>{uploading ? '正在导入…' : '＋ 导入 PDF'}</button></div>
+      <div className="brand"><ReadOutlined className="brandMark" aria-hidden="true" /><div><strong>slide-notes</strong><small>把理解留在每一页</small></div></div>
+      <div className="directoryImport"><Button type="primary" disabled={readOnly || uploading || resetting || directoryBusy || loading} onClick={() => prepareImport()}>{uploading ? '正在导入…' : <><UploadOutlined aria-hidden="true" /> 导入 PDF</>}</Button></div>
       <Directory readOnly={readOnly} data={directory} selected={selected?.id} busy={loading || uploading || resetting || directoryBusy} onSelect={material => { setSelected(material); setDrawer(false) }} mutate={mutateDirectory} onDelete={deleteMaterial} />
-      <div className="sidebarBottom"><button onClick={() => { setDrawer(false); setSettingsOpen(true) }}><span aria-hidden="true">⚙ </span>系统设置</button></div>
+      <div className="sidebarBottom"><Button type="text" onClick={() => { setDrawer(false); setSettingsOpen(true) }}><SettingOutlined aria-hidden="true" /> 系统设置</Button></div>
   </>
   useEffect(() => {
     const probe = document.createElement('div')
@@ -248,6 +260,15 @@ export default function App() {
   }
   const destinationCourse = importCourse || directory.courses[0]?.id || ''
   const [toast, toastHolder] = notification.useNotification({ placement: 'top' })
+  useEffect(() => {
+    const result = (event: Event) => {
+      const detail = (event as CustomEvent).detail
+      if (detail.result !== '成功') toast.error({ title: detail.error || '保存失败，请检查版本冲突后重试。', duration: 5 })
+      else if (!detail.automatic) toast.success({ title: '保存成功', duration: 3 })
+    }
+    window.addEventListener('slide-notes:save-result', result)
+    return () => window.removeEventListener('slide-notes:save-result', result)
+  }, [toast])
   const [offline, setOffline] = useState(false)
   const [checking, setChecking] = useState(false)
   const returnPosition = useRef(0)
@@ -306,35 +327,37 @@ export default function App() {
       <div className="courseSidebar drawerSidebar">{directoryPanel}</div>
     </Drawer> : <aside className="courseSidebar" aria-label="课件目录" inert={!sidebarVisible || !!targetMaterial}>{directoryPanel}<Divider label="目录宽度" size={width} /></aside>}
     <div className="readingFrame"><section className="readerScroll" ref={reader} inert={!!targetMaterial}>
-    <header className="toolbar">
-      <button className="sidebarToggle" aria-expanded={directoryVisible}
-        aria-label={directoryVisible ? '收起目录' : '展开目录'} onClick={e => { ripple(e); toggleDirectory() }}>☰</button>
-      <div className="breadcrumb">{selected ? <><span>{directory.courses.find(c => c.id === selected.course_id)?.name}
-        {selected.chapter_id ? ' / ' + directory.chapters.find(c => c.id === selected.chapter_id)?.name : ''} /</span> <strong>{selected.filename}</strong></> : <strong>学习工作台</strong>}</div>
-      <button className="fullIcon" aria-label={full ? '退出全屏' : '全屏'} title={full ? '退出全屏' : '全屏'} onClick={() => void fullscreen()}>
-        <svg viewBox="0 0 24 24" width="18" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-          <path d={full ? 'M3 8h5V3m8 0v5h5M3 16h5v5m8 0v-5h5' : 'M3 9V3h6m6 0h6v6M3 15v6h6m6 0h6v-6'} />
-        </svg>
-      </button>
-      <div className="modeSwitcher" aria-label="工作模式">
-        {([['organize', '整理'], ['review', '复习'], ['immerse', '沉浸整理']] as const).map(([value, label]) =>
-          <button key={value} aria-pressed={mode === value} disabled={uploading || resetting || directoryBusy || importOpen}
-            onClick={e => { ripple(e); changeMode(value) }}>{label}</button>)}
-      </div>
+    <header ref={toolbar} className="toolbar">
+      <Tooltip title={directoryVisible ? '收起目录' : '展开目录'}>
+      <Button type="text" className="sidebarToggle" aria-expanded={directoryVisible}
+        aria-label={directoryVisible ? '收起目录' : '展开目录'} onClick={() => toggleDirectory()}>{directoryVisible ? <MenuFoldOutlined /> : <MenuUnfoldOutlined />}</Button></Tooltip>
+      <Breadcrumb className="breadcrumb" items={selected ? [
+        { title: directory.courses.find(c => c.id === selected.course_id)?.name },
+        ...(selected.chapter_id ? [{ title: directory.chapters.find(c => c.id === selected.chapter_id)?.name }] : []),
+        { title: <span className="breadcrumbFile"><Typography.Text ellipsis={{ tooltip: selected.filename }}>{selected.filename}</Typography.Text><div ref={pageNavigator} className="pageNavigatorHost" /></span> },
+      ] : [{ title: '学习工作台' }]} />
+      <Tooltip title={full ? '退出全屏' : '全屏'}>
+      <Button type="text" className="fullIcon" aria-label={full ? '退出全屏' : '全屏'} title={full ? '退出全屏' : '全屏'} onClick={() => void fullscreen()}>
+        {full ? <FullscreenExitOutlined /> : <FullscreenOutlined />}
+      </Button></Tooltip>
+      <Tabs className="modeSwitcher" aria-label="工作模式" activeKey={mode} onChange={value => changeMode(value as Mode)}
+        animated={{ inkBar: true, tabPane: false }} items={([['organize', '整理'], ['review', '复习'], ['immerse', '沉浸整理']] as const).map(([key, label]) => ({ key, label, disabled: uploading || resetting || directoryBusy || importOpen }))} />
       <Popover trigger={['hover', 'click', 'focus']} placement="bottomRight" content={<div className="saveLog">
         {store.history.length === 0 && <span>本次尚无保存记录</span>}
-        {store.history.map((record, index) => {
+        {store.history.length > 0 && <div className="saveTimeline">{store.history.map((record, index) => {
           const location = store.locations.get(record.pageId)
           const file = materials.find(item => item.id === location?.materialId)
-          return <div key={index}><i className={'statusDot ' + (record.result === '成功' ? 'online' : 'offline')} />
-            {clock(record.time)} 保存{record.result} · {file?.filename} · 第 {location?.number} 页
+          const status = record.result === '成功' ? 'success' : record.result === '冲突' ? 'warning' : 'error'
+          return <div className="saveTimelineItem" key={index}><Badge status={status} />
+            <div className="saveTimelineText"><div className="saveTimelineTitle">{clock(record.time)} 保存{record.result}</div>
+              <div className="saveTimelineMeta">{file?.filename ?? '课件'} · 第 {location?.number ?? '—'} 页</div></div>
           </div>
-        })}
-        <hr />停止输入约 800ms 自动保存，也可使用 ⌘ / Ctrl + S 手动保存
+        })}</div>}
+        <AntDivider /><div className="saveTimelineHint">停止输入约 800ms 自动保存，也可使用 ⌘ / Ctrl + S 手动保存</div>
       </div>}>
-        <button className={narrow ? 'compactStatus' : 'globalStatus'} aria-label={saveText}>
-          <i className={'statusDot ' + dot} />{!narrow && <span role="status">{saveText}</span>}
-        </button>
+        <Button type="text" className={narrow ? 'compactStatus' : 'globalStatus'} aria-label={saveText}>
+          <Badge status={dot === 'online' ? 'success' : dot === 'offline' ? 'error' : dot === 'idle' ? 'default' : 'warning'} />{!narrow && <span role="status">{saveText}</span>}
+        </Button>
       </Popover>
     </header>
     <div className="systemAlerts">{offline && <Alert type="error" showIcon title="后端连接失败，请检查服务是否运行。" action={<Button type="link" loading={checking} onClick={() => void retryConnection()}>重试连接</Button>} />}
@@ -345,10 +368,10 @@ export default function App() {
       {store.storageError && <p role="alert" className="errorBanner">{store.storageError}</p>}
       {directoryBusy && <p role="status">正在保存目录…</p>}
       {loading && <p className="loading" role="status">正在读取课件目录…</p>}
-      {!selected && !loading && <div className="emptyState"><div className="emptyPage" aria-hidden="true"><span /><span /><span /></div><h1>从一份课件开始</h1><p>课件在左，理解在右。<br />逐页阅读，把重点写成自己的笔记。</p><button className="primary" disabled={readOnly || uploading || resetting || directoryBusy || loading} onClick={() => prepareImport()}>{uploading ? '正在校验并导入…' : '导入 PDF 课件'}</button><small>也可将 PDF 拖到这里 · 最大 100 MB</small>{materials.length > 0 && <p>或从左侧目录打开已有课件。</p>}</div>}
-      {selected && !resetting && <><div className="documentHeading"><PdfIcon /><h1>{selected.filename.replace(/\.pdf$/i, '')}</h1><small className="pageCount">{selected.page_count}页</small></div>{documentLoading && <p className="loading" role="status">正在加载课件…</p>}{pdf && <Reader key={selected.id} materialId={selected.id} pages={pages} pdf={pdf} store={store} onNotice={message => toast.success({ title: message, duration: 4, key: 'page-settings' })} onFailure={message => toast.error({ title: message, duration: 0, key: 'page-settings' })} mode={mode} onMode={changeMode} reader={reader} onSettings={settings => setPages(old => old.map(page => { const next = settings.find(item => item.id === page.id); return next ? { ...page, category: next.category, display: next.display, settings_version: next.settings_version } : page }))} />}</>}
+      {!selected && !loading && <div className="emptyState"><Empty image={<ReadOutlined />} description={false} /><h1>从一份课件开始</h1><p>课件在左，理解在右。<br />逐页阅读，把重点写成自己的笔记。</p><Button type="primary" disabled={readOnly || uploading || resetting || directoryBusy || loading} onClick={() => prepareImport()}>{uploading ? '正在校验并导入…' : '导入 PDF 课件'}</Button><small>也可将 PDF 拖到这里 · 最大 100 MB</small>{materials.length > 0 && <p>或从左侧目录打开已有课件。</p>}</div>}
+      {selected && !resetting && <><div className="documentHeading"><PdfIcon /><h1>{selected.filename.replace(/\.pdf$/i, '')}</h1><Tag>{selected.page_count}页</Tag></div>{documentLoading && <div className="loading" role="status"><Spin size="small" /> 正在加载课件…</div>}{pdf && <Reader key={selected.id} materialId={selected.id} pages={pages} pdf={pdf} store={store} onNotice={message => toast.success({ title: message, duration: 4, key: 'page-settings' })} onFailure={message => toast.error({ title: message, duration: 0, key: 'page-settings' })} mode={mode} onMode={changeMode} reader={reader} pageNavigator={pageNavigator} onSettings={settings => setPages(old => old.map(page => { const next = settings.find(item => item.id === page.id); return next ? { ...page, display: next.display, settings_version: next.settings_version } : page }))} />}</>}
     </main></section>
-    {target && targetMaterial && targetLocation && <ConflictPage key={target.url} material={targetMaterial} number={targetLocation.number} entry={target} store={store} onReturn={() => { setTargetUrl(''); if (reader.current) reader.current.scrollTop = returnPosition.current }} />}
+    {target && targetMaterial && targetLocation && <ConflictPage key={target.url} material={targetMaterial} number={targetLocation.number} entry={target} store={store} onNotice={message => toast.success({ title: message, duration: 4 })} onFailure={message => toast.error({ title: message, duration: 0 })} onReturn={() => { setTargetUrl(''); if (reader.current) reader.current.scrollTop = returnPosition.current }} />}
     </div>
     <ImportDialog open={importOpen} directory={directory} course={destinationCourse} chapter={importChapter} file={importFile} busy={uploading || directoryBusy || loading} error={error} duplicate={duplicate?.path} onOpenExisting={() => void openExisting()} onCourse={id => { setImportCourse(id); setImportChapter('') }} onChapter={setImportChapter} onFile={file => { setImportFile(file); setDuplicate(null); setError('') }} onReload={() => { void loadMaterials(); setImportCourse(''); setImportChapter('') }} onClose={() => setImportOpen(false)} onSubmit={() => void upload(importFile ?? undefined)} onCreate={(name, isChapter) => isChapter ? mutateDirectory('/api/chapters', 'POST', { name, course_id: destinationCourse }) : mutateDirectory('/api/courses', 'POST', { name })} />
 
