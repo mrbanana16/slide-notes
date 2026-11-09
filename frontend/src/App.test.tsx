@@ -37,7 +37,7 @@ it('keeps unsaved notes bound to their page when switching materials and warns b
   await waitFor(() => expect((screen.getByLabelText('个人笔记') as HTMLTextAreaElement).value).toBe(''))
   await openMaterial('第一份.pdf')
   await waitFor(() => expect((screen.getByLabelText('个人笔记') as HTMLTextAreaElement).value).toBe('只属于第一份'))
-  expect(screen.getByRole('button', { name: /1 页未保存|保存失败/ })).toBeTruthy()
+  expect(screen.getByRole('button', { name: /^(1 页未保存|保存失败)$/ })).toBeTruthy()
 })
 
 it('imports a PDF and opens its stable page', async () => {
@@ -102,7 +102,7 @@ it('clears materials and unsaved drafts after confirmed reset, including a late 
   render(<App />)
   await openMaterial('第一份.pdf')
   fireEvent.change(await screen.findByLabelText('个人笔记'), { target: { value: 'erase my draft' } })
-  fireEvent.click(screen.getByText('保存笔记'))
+  fireEvent.keyDown(screen.getByLabelText('个人笔记'), { key: 's', ctrlKey: true })
   fireEvent.click(screen.getByText('系统设置'))
   fireEvent.click(screen.getByRole('button', { name: '清空全部数据' }))
   fireEvent.click(screen.getByRole('button', { name: '确认清空' }))
@@ -119,7 +119,8 @@ it('clears materials and unsaved drafts after confirmed reset, including a late 
 })
 
 it('keeps the current draft if reset fails', async () => {
-  vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+  vi.stubGlobal('fetch', vi.fn(async (url: string, options?: RequestInit) => {
+    if (options?.method === 'PUT') return Response.json({ error: '保存暂不可用' }, { status: 503 })
     if (url === '/api/reset') return new Response(JSON.stringify({ error: '清空失败' }), { status: 500 })
     return new Response(JSON.stringify(url === '/api/directory' ? directory() : [{ id: 'page-a', number: 1, note: '', version: 0 }]))
   }))
@@ -129,10 +130,9 @@ it('keeps the current draft if reset fails', async () => {
   fireEvent.click(screen.getByText('系统设置'))
   fireEvent.click(screen.getByRole('button', { name: '清空全部数据' }))
   fireEvent.click(screen.getByRole('button', { name: '确认清空' }))
-  await screen.findByRole('alert')
+  await screen.findByText('清空失败')
   await waitFor(() => expect((screen.getByLabelText('个人笔记') as HTMLTextAreaElement).value).toBe('keep on failure'))
-  expect(screen.getByRole('button', { name: /1 页未保存|保存失败/ })).toBeTruthy()
-  expect(screen.getByRole('alert').textContent).toContain('清空失败')
+  expect(screen.getByRole('button', { name: /^(1 页未保存|保存失败)$/ })).toBeTruthy()
 })
 
 it('moves the open material without reloading its pages or losing an unsaved draft', async () => {
@@ -157,7 +157,7 @@ it('moves the open material without reloading its pages or losing an unsaved dra
   const body = JSON.parse(mutation[1]!.body as string)
   expect(body.revision).toBe(0)
   expect(body.material_ids.chapter).toEqual(['a'])
-  expect(screen.getByRole('button', { name: /1 页未保存|保存失败/ })).toBeTruthy()
+  expect(screen.getByRole('button', { name: /^(1 页未保存|保存失败)$/ })).toBeTruthy()
 })
 
 it('preserves the old directory and draft on stale order, then reloads the current directory', async () => {
@@ -200,7 +200,7 @@ it('shows saved note counts, cancels deletion, and clears only the confirmed mat
   await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
   expect(fetch.mock.calls.some(call => call[1]?.method === 'DELETE')).toBe(false)
   expect((screen.getByLabelText('个人笔记') as HTMLTextAreaElement).value).toBe('删除的草稿')
-  fireEvent.click(screen.getByText('保存笔记'))
+  fireEvent.keyDown(screen.getByLabelText('个人笔记'), { key: 's', ctrlKey: true })
   await directoryAction('第一份.pdf', '删除课件')
   fireEvent.click(await screen.findByRole('button', { name: '确认删除' }))
   await screen.findByText('课件及其关联笔记已删除。')
@@ -264,6 +264,7 @@ it('creates a first course inside the import dialog and selects it for upload', 
 
 it('keeps the open editor and draft after material deletion fails', async () => {
   vi.stubGlobal('fetch', vi.fn(async (url: string, options?: RequestInit) => {
+    if (url === '/api/status') return Response.json({ status: 'ok' })
     if (options?.method === 'PUT') return Response.json({ error: '保存暂不可用' }, { status: 503 })
     if (url === '/api/materials/a' && options?.method === 'DELETE') return new Response(JSON.stringify({ error: '删除失败' }), { status: 500 })
     if (url === '/api/materials/a') return new Response(JSON.stringify({ ...materials[0], note_count: 0, page_ids: ['page-a'] }))
@@ -276,7 +277,7 @@ it('keeps the open editor and draft after material deletion fails', async () => 
   fireEvent.click(await screen.findByRole('button', { name: '确认删除' }))
   await screen.findByText('删除失败')
   expect((screen.getByLabelText('个人笔记') as HTMLTextAreaElement).value).toBe('失败保留')
-  expect(screen.getByRole('button', { name: /1 页未保存|保存失败/ })).toBeTruthy()
+  expect(screen.getByRole('button', { name: /^(1 页未保存|保存失败)$/ })).toBeTruthy()
   expect(localStorage.length).toBeGreaterThan(0)
 })
 
@@ -288,6 +289,7 @@ it('allows theme changes while disconnected, retries status and restores the pre
   }))
   const app = render(<App />)
   fireEvent.click(screen.getByText('系统设置'))
+  expect(screen.getByText(/^v\d+\.\d+$/)).toBeTruthy()
   await screen.findByText('连接失败，请检查后端服务')
   fireEvent.click(screen.getByLabelText('深色'))
   expect(document.documentElement.dataset.theme).toBe('dark')
@@ -370,13 +372,13 @@ it('keeps a background conflict visible after another save succeeds and returns 
   render(<App />)
   await openMaterial('第一份.pdf')
   fireEvent.change(await screen.findByLabelText('个人笔记'), { target: { value: '本地版本' } })
-  fireEvent.click(screen.getByText('保存笔记'))
+  fireEvent.keyDown(screen.getByLabelText('个人笔记'), { key: 's', ctrlKey: true })
   await openMaterial('第二份.pdf')
   await screen.findByLabelText('个人笔记')
   await act(async () => finish(Response.json({ error: '冲突', current: { ...a, note: '远端版本', version: 1 } }, { status: 409 })))
   fireEvent.change(screen.getByLabelText('个人笔记'), { target: { value: '另一页成功' } })
-  fireEvent.click(screen.getByText('保存笔记'))
-  await screen.findByText('已保存')
+  fireEvent.keyDown(screen.getByLabelText('个人笔记'), { key: 's', ctrlKey: true })
+  await screen.findByText('保存成功')
   expect(screen.getByLabelText('保存冲突')).toBeTruthy()
   fireEvent.click(screen.getByText('查看冲突'))
   const recovery = screen.getByLabelText('冲突页整理')
@@ -386,21 +388,72 @@ it('keeps a background conflict visible after another save succeeds and returns 
   expect((screen.getByLabelText('个人笔记') as HTMLTextAreaElement).value).toBe('另一页成功')
 })
 
-it('keeps one connection alert until an explicit retry reaches the backend and reloads the directory', async () => {
-  let online = false
-  vi.stubGlobal('fetch', vi.fn(async (url: string) => {
-    if (!online) throw new TypeError('Failed to fetch')
-    return Response.json(url === '/api/status' ? { status: 'ok' } : directory())
+it('checks backend health every five seconds and retries failed saves after reconnecting', async () => {
+  let online = true
+  let checks = 0
+  let saves = 0
+  const page = { id: 'page-a', number: 1, note: '', version: 0 }
+  vi.stubGlobal('fetch', vi.fn(async (url: string, options?: RequestInit) => {
+    if (url === '/api/status') {
+      checks++
+      return Response.json({ status: online ? 'ok' : 'unavailable' }, { status: online ? 200 : 503 })
+    }
+    if (options?.method === 'PUT') {
+      saves++
+      if (!online) throw new TypeError('保存时连接中断')
+      return Response.json({ ...page, note: JSON.parse(options.body as string).note, version: 1 })
+    }
+    return Response.json(url === '/api/directory' ? directory() : [page])
   }))
-  render(<App />)
-  const retry = await screen.findByText('重试连接')
-  fireEvent.click(retry)
-  expect(screen.getAllByText('后端连接失败，请检查服务是否运行。')).toHaveLength(1)
-  await waitFor(() => expect(retry.closest('button')?.className).not.toContain('loading'))
-  online = true
-  fireEvent.click(retry)
-  await screen.findByText('第一份.pdf')
-  expect(screen.queryByText('重试连接')).toBeNull()
+  vi.useFakeTimers()
+  try {
+    await act(async () => { render(<App />) })
+    await act(async () => { fireEvent.click(screen.getByLabelText('第一份.pdf').closest('.ant-tree-node-content-wrapper')!) })
+    const input = screen.getByLabelText('个人笔记')
+    const advance = (ms: number) => act(async () => { await vi.advanceTimersByTimeAsync(ms) })
+    await advance(5000)
+    expect(checks).toBe(1)
+    online = false
+    await advance(5000)
+    expect(screen.getByText(/重连成功后将自动尝试保存.*将在 5 s 后重试连接/)).toBeTruthy()
+    expect(screen.queryByRole('button', { name: '重试连接' })).toBeNull()
+    await act(async () => {
+      fireEvent.change(input, { target: { value: '离线草稿' } })
+      fireEvent.keyDown(input, { key: 's', ctrlKey: true })
+    })
+    expect(saves).toBe(0)
+    await advance(1000)
+    expect(screen.getByText(/将在 4 s 后重试连接/)).toBeTruthy()
+    await advance(4000)
+    expect(checks).toBe(3)
+    expect(saves).toBe(0)
+    expect(screen.getByRole('button', { name: '1 页未保存' })).toBeTruthy()
+    expect(screen.getByText(/将在 5 s 后重试连接/)).toBeTruthy()
+    online = true
+    await advance(5000)
+    expect(checks).toBe(4)
+    expect(saves).toBe(1)
+    expect(screen.queryByText(/后端连接失败，请检查服务是否运行/)).toBeNull()
+    expect(screen.queryByText('保存时连接中断')).toBeNull()
+    expect(screen.getByRole('button', { name: /已自动保存/ })).toBeTruthy()
+    expect((input as HTMLTextAreaElement).value).toBe('离线草稿')
+    await advance(5000)
+    expect(checks).toBe(5)
+    expect(saves).toBe(1)
+    online = false
+    await act(async () => {
+      fireEvent.change(input, { target: { value: '连接刚断开的草稿' } })
+      fireEvent.keyDown(input, { key: 's', ctrlKey: true })
+    })
+    expect(saves).toBe(2)
+    expect(screen.getByText(/将在 5 s 后重试连接/)).toBeTruthy()
+    await advance(5000)
+    expect(saves).toBe(2)
+    online = true
+    await advance(5000)
+    expect(saves).toBe(3)
+    expect(screen.queryByText('保存时连接中断')).toBeNull()
+  } finally { vi.useRealTimers() }
 })
 
 it('ignores dragged PDF text but accepts an external file drop', async () => {
@@ -417,4 +470,114 @@ it('ignores dragged PDF text but accepts an external file drop', async () => {
   expect(screen.getByText('松开以导入 PDF')).toBeTruthy()
   fireEvent.drop(main, { dataTransfer: { types: ['Files'], files: [file] } })
   expect(await screen.findByRole('dialog')).toBeTruthy()
+})
+
+it('retries a failed QA save from both the toast and save log', async () => {
+  const qa = { id: 'a'.repeat(32), question: '问题', answer: '旧回答', position: 1, version: 1, deleted: false }
+  let attempts = 0
+  let finishRetry!: () => void
+  const fetch = vi.fn(async (url: string, options?: RequestInit) => {
+    if (url === '/api/status') return Response.json({ status: 'ok' })
+    if (options?.method === 'PUT') {
+      if (url.endsWith('/note')) return Response.json({ error: '页面已不存在' }, { status: 404 })
+      if (++attempts === 3 || attempts === 1) return Response.json({ error: '问答暂时无法保存' }, { status: 500 })
+      if (attempts === 2) await new Promise<void>(done => { finishRetry = done })
+      return Response.json({ ...qa, answer: '新回答', version: attempts === 2 ? 2 : 3 })
+    }
+    return Response.json(url === '/api/directory' ? directory() : [{ id: 'page-a', number: 1, note: '', version: 0, qa: [qa] }])
+  })
+  vi.stubGlobal('fetch', fetch)
+  render(<App />)
+  await openMaterial('第一份.pdf')
+  fireEvent.click(await screen.findByRole('button', { name: /追问与 AI 解答/ }))
+  const answer = screen.getByLabelText('回答 1')
+  vi.useFakeTimers()
+  try {
+    await act(async () => {
+      fireEvent.change(answer, { target: { value: '新回答' } })
+      fireEvent.keyDown(answer, { key: 's', ctrlKey: true })
+    })
+    const toast = document.querySelector<HTMLElement>('.ant-notification-notice')!
+    expect(within(toast).getByText('保存失败')).toBeTruthy()
+    await act(async () => {
+      const note = screen.getByLabelText('个人笔记')
+      fireEvent.change(note, { target: { value: '已移除页的草稿' } })
+      fireEvent.keyDown(note, { key: 's', ctrlKey: true })
+    })
+    const notification = document.querySelector<HTMLElement>('.ant-notification')!
+    expect(within(notification).getByText('页面已不存在')).toBeTruthy()
+    await act(async () => { await vi.advanceTimersByTimeAsync(4100) })
+    expect(within(notification).getByText('页面已不存在')).toBeTruthy()
+    await act(async () => { await vi.advanceTimersByTimeAsync(2000) })
+    expect(within(notification).queryByText('页面已不存在')).toBeNull()
+    await act(async () => { fireEvent.click(within(toast).getByRole('button', { name: '重试' })) })
+    expect(attempts).toBe(2)
+    expect(within(toast).getByText('问答暂时无法保存')).toBeTruthy()
+    expect(within(answer.closest('.qaEntry')!).getByText('问答暂时无法保存')).toBeTruthy()
+    await act(async () => { finishRetry() })
+    expect(document.querySelector('.ant-notification-notice-error')).toBeNull()
+    expect(screen.queryByText('问答暂时无法保存')).toBeNull()
+    await act(async () => {
+      fireEvent.change(answer, { target: { value: '再次编辑' } })
+      fireEvent.keyDown(answer, { key: 's', ctrlKey: true })
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '保存失败' }))
+      await vi.advanceTimersByTimeAsync(300)
+    })
+    const log = document.querySelector<HTMLElement>('.saveLog')!
+    expect(within(log).getAllByText(/保存失败（手动）/).length).toBeGreaterThan(0)
+    await act(async () => { fireEvent.click(within(log).getByRole('button', { name: '重试' })) })
+    expect(attempts).toBe(4)
+    expect(document.querySelector('.ant-notification-notice-error')).toBeNull()
+    expect(JSON.parse(fetch.mock.calls.filter(call => call[1]?.method === 'PUT').at(-1)![1]!.body as string))
+      .toEqual({ question: '问题', answer: '再次编辑', deleted: false, version: 2 })
+    expect(within(log).queryByRole('button', { name: '重试' })).toBeNull()
+    expect((answer as HTMLTextAreaElement).value).toBe('再次编辑')
+  } finally { vi.useRealTimers() }
+})
+
+it('keeps a file error inside its import dialog and clears it on cancel', async () => {
+  vi.stubGlobal('fetch', vi.fn(async (url: string, options?: RequestInit) => {
+    if (options?.method === 'POST') {
+      const file = (options.body as FormData).get('file') as File
+      if (file.name === 'bad.pdf') return Response.json({ error: 'PDF 已损坏' }, { status: 400 })
+      return Response.json(materials[0], { status: 201 })
+    }
+    return Response.json(url === '/api/directory' ? directory() : [{ id: 'page-a', number: 1, note: '', version: 0 }])
+  }))
+  render(<App />)
+  await screen.findByText('第一份.pdf')
+  function submit(name: string) {
+    fireEvent.click(screen.getByRole('button', { name: /^导入 PDF$/ }))
+    fireEvent.change(document.querySelector('input[type="file"]')!, { target: { files: [new File(['%PDF'], name)] } })
+    fireEvent.click(screen.getByRole('button', { name: '确认导入' }))
+  }
+  submit('bad.pdf')
+  expect(within(await screen.findByRole('dialog')).getByText('PDF 已损坏')).toBeTruthy()
+  expect(screen.queryByRole('button', { name: '重新加载目录' })).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: '取消' }))
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+  expect(screen.queryByText('PDF 已损坏')).toBeNull()
+  submit('good.pdf')
+  await screen.findByText('PDF 第 1 页')
+  expect(screen.queryByText('PDF 已损坏')).toBeNull()
+})
+
+it('shows the full filename in a tooltip in the directory and toolbar', async () => {
+  const filename = '用于核对目录和顶栏悬浮提示的长课件名称 lecture - Linear regression.pdf'
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => Response.json(url === '/api/directory'
+    ? directory([{ ...materials[0], filename }]) : [{ id: 'page-a', number: 1, note: '', version: 0 }])))
+  render(<App />)
+  const directoryName = await screen.findByText(filename)
+  fireEvent.mouseEnter(directoryName.closest('.treeText')!)
+  expect((await screen.findByRole('tooltip')).textContent).toBe(filename)
+  fireEvent.mouseLeave(directoryName.closest('.treeText')!)
+  await waitFor(() => expect(screen.queryByRole('tooltip')).toBeNull())
+
+  fireEvent.click(directoryName.closest('.ant-tree-node-content-wrapper')!)
+  const breadcrumb = document.querySelector<HTMLElement>('.breadcrumb')!
+  const toolbarName = await within(breadcrumb).findByText(filename)
+  fireEvent.mouseEnter(toolbarName)
+  expect((await screen.findByRole('tooltip')).textContent).toBe(filename)
 })

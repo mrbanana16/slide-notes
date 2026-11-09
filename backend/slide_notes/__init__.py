@@ -15,7 +15,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from werkzeug.exceptions import HTTPException
 
-from .models import Material, Page, PageNote, QAEntry
+from .models import Material, Page, PageNote, QAEntry, valid_version
 from .directory import SYSTEM_COURSE_ID, bump, destination as validate_destination, duplicate_json, material_json, register_directory, snapshot
 from .page_settings import register_page_settings, settings_json
 from .storage import file_hash, migrate_database, reset_storage
@@ -177,7 +177,7 @@ def create_app(data_dir=None):
     @app.put("/api/pages/<page_id>/note")
     def save_note(page_id):
         body = request.get_json(silent=True)
-        if not isinstance(body, dict) or not isinstance(body.get("note"), str) or type(body.get("version")) is not int or body["version"] < 0:
+        if not isinstance(body, dict) or not isinstance(body.get("note"), str) or not valid_version(body.get("version")):
             return jsonify(error="请提供笔记文本和有效版本号。"), 400
         if len(body["note"]) > 1_000_000:
             return jsonify(error="笔记不能超过 100 万字符。"), 400
@@ -194,7 +194,7 @@ def create_app(data_dir=None):
     @app.put("/api/pages/<page_id>/summary")
     def save_summary(page_id):
         body = request.get_json(silent=True)
-        if not isinstance(body, dict) or not isinstance(body.get("summary"), str) or type(body.get("version")) is not int or body["version"] < 0:
+        if not isinstance(body, dict) or not isinstance(body.get("summary"), str) or not valid_version(body.get("version")):
             return jsonify(error="请提供总结文本和有效版本号。"), 400
         if len(body["summary"]) > 1_000_000:
             return jsonify(error="总结不能超过 100 万字符。"), 400
@@ -212,7 +212,7 @@ def create_app(data_dir=None):
         body = request.get_json(silent=True)
         if not re.fullmatch(r"[0-9a-f]{32}", entry_id):
             return jsonify(error="问答 ID 必须是 32 位小写十六进制字符串。"), 400
-        if not isinstance(body, dict) or type(body.get("version")) is not int or body["version"] < 0 or not all(isinstance(body.get(key), str) and len(body[key]) <= 1_000_000 for key in ("question", "answer")) or type(body.get("deleted", False)) is not bool:
+        if not isinstance(body, dict) or not valid_version(body.get("version")) or not all(isinstance(body.get(key), str) and len(body[key]) <= 1_000_000 for key in ("question", "answer")) or type(body.get("deleted", False)) is not bool:
             return jsonify(error="请提供问题、回答、有效版本号和可选删除标记，文本各不超过 100 万字符。"), 400
         with Session(engine) as session, session.begin():
             if session.get(Page, page_id) is None:

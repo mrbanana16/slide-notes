@@ -4,11 +4,11 @@ export type Content = { note?: string; summary?: string; question?: string; answ
 export type Entry = {
   url: string; pageId: string; kind: 'note' | 'summary' | 'qa'; id: string
   value: Content; saved: Content; version: number; pending: boolean; error: string
-  conflict?: { value: Content; version: number }; recovered?: boolean; missing?: boolean; uncertain?: boolean; edited?: boolean
+  conflict?: { value: Content; version: number }; recovered?: boolean; missing?: boolean; uncertain?: boolean
 }
 const prefix = 'slide-notes:draft:v2:'
 const equal = (a: Content, b: Content) => JSON.stringify(a) === JSON.stringify(b)
-export type SaveRecord = { pageId: string; kind: Entry['kind']; time: number; result: '成功' | '失败' | '冲突'; automatic: boolean }
+export type SaveRecord = { url: string; pageId: string; kind: Entry['kind']; time: number; result: '成功' | '失败' | '冲突'; automatic: boolean }
 export class DraftStore {
   namespace: string
   identityError = ''
@@ -30,6 +30,7 @@ export class DraftStore {
   timers = new Map<string, ReturnType<typeof setTimeout>>()
   storageError = ''
   paused = false
+  offline = false
   stored = new Map<string, string>()
   subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener) } }
   emit() { this.listeners.forEach(listener => listener()) }
@@ -73,7 +74,7 @@ export class DraftStore {
     const url = `/api/pages/${pageId}/${kind === 'qa' ? 'qa/' + id : kind}`
     const existing = this.entries[url]
     if (existing && (this.dirty(existing) || existing.pending)) return existing
-    const entry: Entry = { url, pageId, kind, id, value, saved: value, version, pending: false, error: '', edited: existing?.edited }
+    const entry: Entry = { url, pageId, kind, id, value, saved: value, version, pending: false, error: '' }
     try {
       const stored = JSON.parse(localStorage.getItem(this.namespace + url) ?? 'null')
       if (stored && stored.value && typeof stored.version === 'number') {
@@ -91,7 +92,6 @@ export class DraftStore {
     return entry
   }
   edit(entry: Entry, value: Content) {
-    entry.edited = true
     entry.value = value
     entry.error = ''
     this.persist(entry)
@@ -100,17 +100,25 @@ export class DraftStore {
   }
   schedule(entry: Entry) {
     clearTimeout(this.timers.get(entry.url))
-    if (!this.paused && !entry.error && !entry.conflict && !entry.missing && this.dirty(entry)) this.timers.set(entry.url, setTimeout(() => void this.save(entry, true), 800))
+    if (!this.paused && !this.offline && !entry.error && !entry.conflict && !entry.missing && this.dirty(entry)) this.timers.set(entry.url, setTimeout(() => void this.save(entry, true), 800))
+  }
+  canRetry(url: string) {
+    const entry = this.entries[url]
+    return !this.paused && !!entry?.error && !entry.pending && !entry.conflict && !entry.missing && this.dirty(entry)
+  }
+  retry(url: string) {
+    if (this.canRetry(url)) void this.save(this.entries[url])
   }
   async save(entry: Entry, automatic = false) {
     clearTimeout(this.timers.get(entry.url))
-    if (this.paused || this.entries[entry.url] !== entry || entry.pending || entry.conflict || entry.missing || !this.dirty(entry)) return
-    entry.pending = true; entry.error = ''; this.emit()
+    if (this.paused || this.offline || this.entries[entry.url] !== entry || entry.pending || entry.conflict || entry.missing || !this.dirty(entry)) return
+    entry.pending = true; this.emit()
     const value = { ...entry.value }
     try {
       const result = await api<Page & QA>(entry.url, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...value, version: entry.version }) })
       if (this.entries[entry.url] !== entry) return
       entry.uncertain = false
+      entry.error = ''
       entry.saved = value
       entry.version = entry.kind === 'summary' ? result.summary_version : result.version
       entry.recovered = false
@@ -127,9 +135,10 @@ export class DraftStore {
     } finally {
       entry.pending = false
       if (this.entries[entry.url] === entry) {
-        this.history.unshift({ pageId: entry.pageId, kind: entry.kind, time: Date.now(), automatic, result: entry.conflict ? '冲突' : entry.error ? '失败' : '成功' })
+        const record: SaveRecord = { url: entry.url, pageId: entry.pageId, kind: entry.kind, time: Date.now(), automatic, result: entry.conflict ? '冲突' : entry.error ? '失败' : '成功' }
+        this.history.unshift(record)
         this.history.length = Math.min(5, this.history.length)
-        window.dispatchEvent(new CustomEvent('slide-notes:save-result', { detail: { automatic, result: entry.conflict ? '冲突' : entry.error ? '失败' : '成功', error: entry.error } }))
+        window.dispatchEvent(new CustomEvent('slide-notes:save-result', { detail: { ...record, error: entry.error, deleting: !!value.deleted } }))
         this.persist(entry); this.schedule(entry); this.emit()
       }
     }
@@ -167,7 +176,13 @@ export class DraftStore {
     } catch { this.storageError = '课件已删除，但本地草稿清理失败，请清理此站点存储。' }
     this.emit()
   }
-  pause(value: boolean) { this.paused = value; for (const entry of Object.values(this.entries)) this.schedule(entry) }
+  setOffline(value: boolean) {
+    if (this.offline === value) return
+    this.offline = value
+    for (const entry of Object.values(this.entries)) this.schedule(entry)
+    this.emit()
+  }
+  pause(value: boolean) { this.paused = value; for (const entry of Object.values(this.entries)) this.schedule(entry); this.emit() }
   clear() {
     for (const timer of this.timers.values()) clearTimeout(timer)
     this.timers.clear(); this.entries = {}; this.history = []; this.locations.clear()

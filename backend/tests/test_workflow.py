@@ -93,7 +93,7 @@ def test_conflict_preserves_first_save_and_page_binding(app):
     assert client.put(url, json={"note": "", "version": 1}).get_json()['note'] == ''
 
 
-@pytest.mark.parametrize('body', [None, [], {}, {'note': 123, 'version': 0}, {'note': 'x', 'version': True}, {'note': 'x', 'version': -1}])
+@pytest.mark.parametrize('body', [None, [], {}, {'note': 123, 'version': 0}, {'note': 'x', 'version': True}, {'note': 'x', 'version': -1}, {'note': 'x', 'version': 2**63 - 1}, {'note': 'x', 'version': 2**63}])
 def test_invalid_note_payload(app, body):
     assert app.test_client().put('/api/pages/absent/note', json=body).status_code == 400
 

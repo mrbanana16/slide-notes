@@ -28,7 +28,7 @@ function DestinationChoice({ kind, value, options, disabled, onSelect, onCreate 
 type Props = {
   open: boolean; directory: Directory; course: string; chapter: string; file: File | null; busy: boolean; error: string; duplicate?: string
   onOpenExisting: () => void; onCourse: (id: string) => void; onChapter: (id: string) => void; onFile: (file: File) => void
-  onReload: () => void; onClose: () => void; onSubmit: () => void; onCreate: (name: string, chapter: boolean) => Promise<boolean>
+  onReload?: () => void; onClose: () => void; onSubmit: () => void; onCreate: (name: string, chapter: boolean) => Promise<boolean>
 }
 export function ImportDialog({ open, directory, course, chapter, file, busy, error, duplicate, onOpenExisting, onCourse, onChapter, onFile, onReload, onClose, onSubmit, onCreate }: Props) {
   const options = (items: { id: string; name: string }[]) => items.map(item => ({ value: item.id, label: item.name }))
@@ -45,7 +45,7 @@ export function ImportDialog({ open, directory, course, chapter, file, busy, err
       <DestinationChoice kind="课程" value={course} options={options(directory.courses)} disabled={busy} onSelect={onCourse} onCreate={name => onCreate(name, false)} />
       <DestinationChoice key={course} kind="章节" value={chapter} options={[{ value: '', label: '课程直属（无章节）' }, ...options(directory.chapters.filter(c => c.course_id === course))]} disabled={busy || !course} onSelect={onChapter} onCreate={name => onCreate(name, true)} />
       {duplicate && <Alert type="info" showIcon title="课件已存在" description={<>所在位置：{duplicate}</>} action={<Button onClick={onOpenExisting}>打开已有课件</Button>} />}
-      {error && <Alert type="error" showIcon title={error} action={<Button disabled={busy} onClick={onReload}>重新加载目录</Button>} />}
+      {error && <Alert type="error" showIcon title={error} action={onReload && <Button disabled={busy} onClick={onReload}>重新加载目录</Button>} />}
     </div>
   </Modal>
 }

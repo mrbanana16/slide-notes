@@ -1,14 +1,14 @@
 import { ReadOutlined, UploadOutlined, SettingOutlined, MenuFoldOutlined, MenuUnfoldOutlined, FullscreenOutlined, FullscreenExitOutlined } from '@ant-design/icons'
 import { Alert, Badge, Breadcrumb, Divider as AntDivider, Empty, Spin, Tabs, Tag, Typography, Tooltip, Button, Drawer, Modal, notification, Popover } from 'antd'
 import { Divider, PdfIcon, useLayoutSize } from './ReadingControls'
-import { useEffect, useRef, useState, type CSSProperties } from 'react'
+import { useEffect, useEffectEvent, useRef, useState, useSyncExternalStore, type CSSProperties } from 'react'
 import { getDocument, GlobalWorkerOptions, type PDFDocumentProxy } from 'pdfjs-dist'
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
-import { api, type Material, type Page, type Directory as DirectoryData } from './api'
+import { api, ApiError, type Material, type Page, type Directory as DirectoryData } from './api'
 import { ConflictPage } from './ConflictPage'
 import { Reader } from './Reader'
 import type { Mode } from './reading'
-import { DraftStore } from './drafts'
+import { DraftStore, type SaveRecord } from './drafts'
 import { Directory } from './Directory'
 import { ImportDialog } from './ImportDialog'
 import { materialPath } from './directoryOrder'
@@ -17,6 +17,15 @@ import { SystemSettings } from './SystemSettings'
 import './styles.css'
 
 GlobalWorkerOptions.workerSrc = workerUrl
+
+const ERROR_DURATION = 5
+const CONNECTION_CHECK_MS = 5000
+type OperationError = { message: string; reload?: boolean }
+
+function RetrySaveButton({ store, url }: { store: DraftStore; url: string }) {
+  const enabled = useSyncExternalStore(store.subscribe, () => !store.offline && store.canRetry(url))
+  return <Button className="retrySave" type="link" size="small" disabled={!enabled} onClick={() => store.retry(url)}>重试</Button>
+}
 
 export default function App() {
   const { mode: displayMode, selectMode } = useDisplayMode()
@@ -37,7 +46,8 @@ export default function App() {
   useEffect(() => store.subscribe(() => refreshDrafts(value => value + 1)), [store])
   useEffect(() => () => store.dispose(), [store])
   const [pdf, setPdf] = useState<PDFDocumentProxy | null>(null)
-  const [error, setError] = useState('')
+  const [error, setError] = useState<OperationError | null>(null)
+  const [importError, setImportError] = useState<OperationError | null>(null)
   const [loading, setLoading] = useState(true)
   const [uploading, setUploading] = useState(false)
   const [documentLoading, setDocumentLoading] = useState(false)
@@ -55,7 +65,9 @@ export default function App() {
     try {
       if (document.fullscreenElement) await document.exitFullscreen()
       else await document.documentElement.requestFullscreen()
-    } catch { setNotice('浏览器未进入全屏，仍可在当前窗口继续阅读或沉浸整理。') }
+    } catch {
+      toast.error({ title: '浏览器未进入全屏，仍可在当前窗口继续阅读或沉浸整理。', key: 'fullscreen-error', duration: ERROR_DURATION })
+    }
   }
   const [sidebar, setSidebar] = useState(true)
   const [mode, setMode] = useState<Mode>('organize')
@@ -79,16 +91,16 @@ export default function App() {
   }, [])
   const dirtyCount = store.dirtyPages
 
-  async function loadMaterials() {
+  async function loadMaterials(reportError = setError) {
     const generation = loadGeneration.current
     setLoading(true)
     try {
       const result = await api<DirectoryData>('/api/directory')
       if (generation !== loadGeneration.current) return
-      applyDirectory(result); setError('')
+      applyDirectory(result); reportError(null)
       return result
     }
-    catch (cause) { if (generation === loadGeneration.current) setError(cause instanceof Error ? cause.message : '课件列表加载失败。') }
+    catch (cause) { if (generation === loadGeneration.current) reportError({ message: cause instanceof Error ? cause.message : '课件列表加载失败。', reload: true }) }
     finally { if (generation === loadGeneration.current) setLoading(false) }
   }
   useEffect(() => { void loadMaterials() }, [])
@@ -104,7 +116,7 @@ export default function App() {
     const generation = loadGeneration.current
     setPdf(null)
     setPages([])
-    setError('')
+    setError(null)
     setDocumentLoading(true)
     if (reader.current) reader.current.scrollTop = 0
     const task = getDocument({ url: `/api/materials/${selected.id}/file`, cMapUrl: '/pdf/cmaps/', cMapPacked: true, standardFontDataUrl: '/pdf/standard_fonts/', wasmUrl: '/pdf/wasm/' })
@@ -113,7 +125,7 @@ export default function App() {
       setPages(nextPages)
       for (const page of nextPages) store.bind(page, selected.id)
       setPdf(doc)
-    }).catch(cause => { if (!stopped && generation === loadGeneration.current) setError(cause instanceof Error ? cause.message : '课件加载失败。') })
+    }).catch(cause => { if (!stopped && generation === loadGeneration.current) setError({ message: cause instanceof Error ? cause.message : '课件加载失败。', reload: true }) })
       .finally(() => { if (!stopped && generation === loadGeneration.current) setDocumentLoading(false) })
     return () => { stopped = true; void task.destroy() }
   }, [selected?.id, documentRetry])
@@ -125,7 +137,7 @@ export default function App() {
   async function mutateDirectory(url: string, method: string, body: object): Promise<boolean> {
     if (operation.current || readOnly) return false
     operation.current = true
-    setDirectoryBusy(true); setError(''); setNotice('')
+    setDirectoryBusy(true); setError(null); setImportError(null); setNotice('')
     try {
       const next = await api<DirectoryData>(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...body, revision: directory.revision }) })
       applyDirectory(next)
@@ -140,13 +152,14 @@ export default function App() {
       setNotice('目录已保存。')
       return true
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : '目录保存失败，请重试。')
+      const reportError = importOpen ? setImportError : setError
+      reportError({ message: cause instanceof Error ? cause.message : '目录保存失败，请重试。', reload: cause instanceof ApiError && cause.status === 409 })
       return false
     } finally { operation.current = false; setDirectoryBusy(false) }
   }
   function prepareImport(file?: File) {
     if (operation.current || readOnly) return
-    setError(''); setNotice('')
+    setImportError(null); setNotice('')
     setDuplicate(null)
     setImportFile(file ?? null)
     setImportCourse(selected?.course_id ?? directory.courses[0]?.id ?? '')
@@ -156,7 +169,7 @@ export default function App() {
   }
   async function deleteMaterial(material: Material) {
     if (operation.current || readOnly) return
-    operation.current = true; setDirectoryBusy(true); setError('')
+    operation.current = true; setDirectoryBusy(true); setError(null)
     let paused = false
     try {
       const detail = await api<Material & { note_count: number; page_ids: string[] }>(`/api/materials/${material.id}`)
@@ -167,24 +180,24 @@ export default function App() {
       store.removePages(detail.page_ids)
       applyDirectory(next)
       setNotice('课件及其关联笔记已删除。')
-    } catch (cause) { setError(cause instanceof Error ? cause.message : '删除失败，请重试。') }
+    } catch (cause) { setError({ message: cause instanceof Error ? cause.message : '删除失败，请重试。', reload: cause instanceof ApiError && cause.status === 409 }) }
     finally { if (paused) store.pause(false); operation.current = false; setDirectoryBusy(false) }
   }
   async function openExisting() {
     if (!duplicate || operation.current) return
-    const current = await loadMaterials()
+    const current = await loadMaterials(setImportError)
     const material = current?.materials.find(m => m.id === duplicate.material.id)
-    if (!material) { setError('课件目录未能加载或课件已被删除，请重新加载目录。'); return }
-    setSelected(material); setImportOpen(false); setImportFile(null); setDuplicate(null)
+    if (!material) { setImportError({ message: '课件目录未能加载或课件已被删除，请重新加载目录。', reload: true }); return }
+    setSelected(material); closeImport()
   }
   async function upload(file?: File) {
     if (!file || operation.current || readOnly) return
-    if (!file.name.toLowerCase().endsWith('.pdf')) { setError('请选择 PDF 文件。'); return }
-    if (file.size > 100 * 1024 * 1024) { setError('文件超过 100 MB 限制。'); return }
+    if (!file.name.toLowerCase().endsWith('.pdf')) { setImportError({ message: '请选择 PDF 文件。' }); return }
+    if (file.size > 100 * 1024 * 1024) { setImportError({ message: '文件超过 100 MB 限制。' }); return }
     operation.current = true
     setUploading(true)
     setNotice('')
-    setError('')
+    setImportError(null)
     try {
       const form = new FormData()
       form.append('file', file)
@@ -198,12 +211,18 @@ export default function App() {
         setDuplicate({ material, path })
         return
       }
-      const next = await api<DirectoryData>('/api/directory')
-      applyDirectory(next)
-      setImportOpen(false); setImportFile(null); setDuplicate(null)
+      if (!await loadMaterials(setImportError)) return
+      closeImport()
       setSelected(material)
-    } catch (cause) { setError(cause instanceof Error ? cause.message : '导入失败，请重试。') }
+    } catch (cause) { setImportError({ message: cause instanceof Error ? cause.message : '导入失败，请重试。' }) }
     finally { operation.current = false; setUploading(false) }
+  }
+
+  function closeImport() {
+    setImportOpen(false)
+    setImportError(null)
+    setImportFile(null)
+    setDuplicate(null)
   }
 
   async function resetAllData() {
@@ -212,7 +231,7 @@ export default function App() {
     store.pause(true)
     loadGeneration.current += 1
     setResetting(true)
-    setError('')
+    setError(null)
     setNotice('')
     try {
       const result = await api<{ reset: boolean; directory: DirectoryData }>('/api/reset', {
@@ -222,13 +241,13 @@ export default function App() {
       setPdf(null)
       setPages([])
       setDirectory(result.directory)
-      setImportOpen(false); setImportFile(null); setDuplicate(null)
+      closeImport()
       store.clear()
       setLoading(false)
       setDocumentLoading(false)
       setNotice('全部数据已清空，可以重新导入课件。')
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : '清空失败，请重试。')
+      setError({ message: cause instanceof Error ? cause.message : '清空失败，请重试。' })
       setDocumentLoading(false)
     } finally { operation.current = false; store.pause(false); setResetting(false) }
   }
@@ -262,15 +281,28 @@ export default function App() {
   const [toast, toastHolder] = notification.useNotification({ placement: 'top' })
   useEffect(() => {
     const result = (event: Event) => {
-      const detail = (event as CustomEvent).detail
-      if (detail.result !== '成功') toast.error({ title: detail.error || '保存失败，请检查版本冲突后重试。', duration: 5 })
-      else if (!detail.automatic) toast.success({ title: '保存成功', duration: 3 })
+      const detail = (event as CustomEvent<SaveRecord & { error: string; deleting: boolean }>).detail
+      if (detail.result === '成功') {
+        toast.destroy('save-error:' + detail.url)
+        if (!detail.automatic) toast.success({ title: detail.deleting ? '问答已删除。' : '保存成功', duration: 3 })
+        return
+      }
+      const message = detail.deleting ? '删除问答未完成：' + detail.error : detail.error
+      if (detail.result === '失败' && store.canRetry(detail.url)) {
+        toast.error({
+          key: 'save-error:' + detail.url,
+          title: <>保存失败 <RetrySaveButton store={store} url={detail.url} /></>,
+          description: message,
+          duration: 0,
+          closable: true,
+        })
+      } else toast.error({ title: message || '保存失败，请检查版本冲突后重试。', duration: ERROR_DURATION })
     }
     window.addEventListener('slide-notes:save-result', result)
     return () => window.removeEventListener('slide-notes:save-result', result)
-  }, [toast])
-  const [offline, setOffline] = useState(false)
-  const [checking, setChecking] = useState(false)
+  }, [store, toast])
+  const [retrySeconds, setRetrySeconds] = useState<number | null>(null)
+  const offline = retrySeconds !== null
   const returnPosition = useRef(0)
   const [targetUrl, setTargetUrl] = useState('')
   const entries = Object.values(store.entries)
@@ -279,7 +311,7 @@ export default function App() {
   const targetLocation = target && store.locations.get(target.pageId)
   const targetMaterial = materials.find(material => material.id === targetLocation?.materialId)
   const latest = store.history[0]
-  const failed = entries.some(entry => entry.error || entry.conflict)
+  const failed = entries.some(entry => (!entry.pending && entry.error) || entry.conflict)
   const pending = entries.some(entry => entry.pending)
   const clock = (time: number) => new Date(time).toLocaleTimeString('zh-CN', { hour12: false })
   let saveText = '暂无保存记录'
@@ -290,35 +322,77 @@ export default function App() {
   else if (latest?.result === '成功') saveText = clock(latest.time) + (latest.automatic ? ' 已自动保存' : ' 已手动保存')
   else if (latest) saveText = '已同步'
   const dot = failed ? 'offline' : dirtyCount ? 'checking' : latest ? 'online' : 'idle'
+  const recoverConnection = useEffectEvent(() => {
+    void loadMaterials().then(result => {
+      if (result && selected && !pdf) setDocumentRetry(n => n + 1)
+    })
+    store.setOffline(false)
+    for (const entry of Object.values(store.entries)) void store.save(entry, true)
+  })
   useEffect(() => {
-    const disconnected = () => setOffline(true)
-    window.addEventListener('slide-notes:offline', disconnected)
-    return () => window.removeEventListener('slide-notes:offline', disconnected)
-  }, [])
+    let nextCheck = Date.now() + CONNECTION_CHECK_MS
+    let disconnected = false
+    let stopped = false
+    let controller: AbortController | undefined
+    let timeout: number | undefined
+
+    function updateCountdown() {
+      setRetrySeconds(controller ? 0 : Math.max(0, Math.ceil((nextCheck - Date.now()) / 1000)))
+    }
+    function reportOffline() {
+      disconnected = true
+      store.setOffline(true)
+      updateCountdown()
+    }
+    async function checkConnection() {
+      controller = new AbortController()
+      const request = controller
+      timeout = window.setTimeout(() => request.abort(), 4000)
+      if (disconnected) updateCountdown()
+      try {
+        const result = await api<{ status: string }>('/api/status', { cache: 'no-store', signal: request.signal })
+        if (result?.status !== 'ok') throw new Error('Invalid status')
+        if (!stopped && disconnected) {
+          disconnected = false
+          setRetrySeconds(null)
+          recoverConnection()
+        }
+      } catch {
+        if (!stopped) reportOffline()
+      } finally {
+        window.clearTimeout(timeout)
+        controller = undefined
+        if (!stopped && disconnected) updateCountdown()
+      }
+    }
+    const timer = window.setInterval(() => {
+      if (controller) return
+      nextCheck = Date.now() + CONNECTION_CHECK_MS
+      void checkConnection()
+    }, CONNECTION_CHECK_MS)
+    const countdown = window.setInterval(() => {
+      if (disconnected && !controller) updateCountdown()
+    }, 1000)
+    window.addEventListener('slide-notes:offline', reportOffline)
+    return () => {
+      stopped = true
+      window.clearInterval(timer)
+      window.clearInterval(countdown)
+      window.clearTimeout(timeout)
+      controller?.abort()
+      window.removeEventListener('slide-notes:offline', reportOffline)
+    }
+  }, [store])
   useEffect(() => {
-    if (!notice) return
-    if (notice.startsWith('浏览器未进入全屏')) toast.error({ title: notice, key: 'fullscreen-error', duration: 0 })
-    else toast.success({ title: notice, key: 'operation', duration: 4 })
+    if (notice) toast.success({ title: notice, key: 'operation', duration: 4 })
   }, [notice, toast])
   useEffect(() => {
-    if (error && !offline && !importOpen) toast.error({ title: error, key: 'operation-error', duration: 0,
-      actions: <Button onClick={() => void loadMaterials().then(result => { if (result && selected) setDocumentRetry(n => n + 1) })}>重新加载</Button> })
-
-  }, [error, offline, importOpen, toast])
-  async function retryConnection() {
-    setChecking(true)
-    try {
-      const result = await api<{ status: string }>('/api/status', { cache: 'no-store' })
-      if (result?.status !== 'ok') return
-      if (!await loadMaterials()) return
-      setOffline(false)
-      if (selected && !pdf) setDocumentRetry(n => n + 1)
-      for (const entry of Object.values(store.entries)) {
-        if (entry.error && !entry.conflict && !entry.missing) void store.save(entry)
-      }
-    } catch { setOffline(true) }
-    finally { setChecking(false) }
-  }
+    if (!error || offline) return
+    toast.error({
+      title: error.message, key: error.reload ? 'operation-reload' : 'operation-error', duration: error.reload ? 0 : ERROR_DURATION,
+      actions: error.reload && <Button onClick={() => void loadMaterials().then(result => { if (result && selected) setDocumentRetry(n => n + 1) })}>重新加载</Button>,
+    })
+  }, [error, offline, toast])
   return <WorkspaceTheme mode={displayMode}><div className={'workspace ' + (sidebarVisible && !narrow ? '' : 'sidebarClosed')}
     style={{ '--course-width': width.value + 'px' } as CSSProperties}>
     {modalHolder}{toastHolder}
@@ -331,11 +405,11 @@ export default function App() {
       <Tooltip title={directoryVisible ? '收起目录' : '展开目录'}>
       <Button type="text" className="sidebarToggle" aria-expanded={directoryVisible}
         aria-label={directoryVisible ? '收起目录' : '展开目录'} onClick={() => toggleDirectory()}>{directoryVisible ? <MenuFoldOutlined /> : <MenuUnfoldOutlined />}</Button></Tooltip>
-      <Breadcrumb className="breadcrumb" items={selected ? [
+      <div className="readingLocation"><Breadcrumb className="breadcrumb" items={selected ? [
         { title: directory.courses.find(c => c.id === selected.course_id)?.name },
         ...(selected.chapter_id ? [{ title: directory.chapters.find(c => c.id === selected.chapter_id)?.name }] : []),
-        { title: <span className="breadcrumbFile"><Typography.Text ellipsis={{ tooltip: selected.filename }}>{selected.filename}</Typography.Text><div ref={pageNavigator} className="pageNavigatorHost" /></span> },
-      ] : [{ title: '学习工作台' }]} />
+        { title: <Tooltip title={selected.filename}><Typography.Text ellipsis>{selected.filename}</Typography.Text></Tooltip> },
+      ] : [{ title: '学习工作台' }]} /><div ref={pageNavigator} className="pageNavigatorHost" /></div>
       <Tooltip title={full ? '退出全屏' : '全屏'}>
       <Button type="text" className="fullIcon" aria-label={full ? '退出全屏' : '全屏'} title={full ? '退出全屏' : '全屏'} onClick={() => void fullscreen()}>
         {full ? <FullscreenExitOutlined /> : <FullscreenOutlined />}
@@ -347,20 +421,22 @@ export default function App() {
         {store.history.length > 0 && <div className="saveTimeline">{store.history.map((record, index) => {
           const location = store.locations.get(record.pageId)
           const file = materials.find(item => item.id === location?.materialId)
+          const retry = record.result === '失败' && store.canRetry(record.url) && store.history.find(item => item.url === record.url) === record
           const status = record.result === '成功' ? 'success' : record.result === '冲突' ? 'warning' : 'error'
           return <div className="saveTimelineItem" key={index}><Badge status={status} />
-            <div className="saveTimelineText"><div className="saveTimelineTitle">{clock(record.time)} 保存{record.result}</div>
+            <div className="saveTimelineText"><div className="saveTimelineTitle">{clock(record.time)} 保存{record.result}{!record.automatic && '（手动）'}{retry && <> <RetrySaveButton store={store} url={record.url} /></>}</div>
               <div className="saveTimelineMeta">{file?.filename ?? '课件'} · 第 {location?.number ?? '—'} 页</div></div>
           </div>
         })}</div>}
-        <AntDivider /><div className="saveTimelineHint">停止输入约 800ms 自动保存，也可使用 ⌘ / Ctrl + S 手动保存</div>
+        <AntDivider /><div className="saveTimelineHint">停止输入将自动保存，也可使用 ⌘ / Ctrl + S 手动保存</div>
       </div>}>
         <Button type="text" className={narrow ? 'compactStatus' : 'globalStatus'} aria-label={saveText}>
           <Badge status={dot === 'online' ? 'success' : dot === 'offline' ? 'error' : dot === 'idle' ? 'default' : 'warning'} />{!narrow && <span role="status">{saveText}</span>}
         </Button>
       </Popover>
     </header>
-    <div className="systemAlerts">{offline && <Alert type="error" showIcon title="后端连接失败，请检查服务是否运行。" action={<Button type="link" loading={checking} onClick={() => void retryConnection()}>重试连接</Button>} />}
+    <div className="systemAlerts">{offline && <Alert type="error" showIcon title={<>后端连接失败，请检查服务是否运行，重连成功后将自动尝试保存。{retrySeconds
+      ? `将在 ${retrySeconds} s 后重试连接…` : '正在重试连接…'}</>} />}
     {conflict && <Alert type="error" showIcon title="笔记存在版本冲突，本地草稿已保留。" action={<Button type="link" onClick={() => { returnPosition.current = reader.current?.scrollTop ?? 0; setTargetUrl(conflict.url) }}>查看冲突</Button>} />}</div>
     {dragging && <div className="dropOverlay">松开以导入 PDF</div>}
     <main className="reader" onDragOver={event => { if (event.dataTransfer.types.includes('Files')) { event.preventDefault(); if (!readOnly) setDragging(true) } }} onDragLeave={event => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setDragging(false) }} onDrop={event => { setDragging(false); const file = event.dataTransfer.files[0]; if (!file) return; event.preventDefault(); if (!readOnly) prepareImport(file) }}>
@@ -369,11 +445,12 @@ export default function App() {
       {directoryBusy && <p role="status">正在保存目录…</p>}
       {loading && <p className="loading" role="status">正在读取课件目录…</p>}
       {!selected && !loading && <div className="emptyState"><Empty image={<ReadOutlined />} description={false} /><h1>从一份课件开始</h1><p>课件在左，理解在右。<br />逐页阅读，把重点写成自己的笔记。</p><Button type="primary" disabled={readOnly || uploading || resetting || directoryBusy || loading} onClick={() => prepareImport()}>{uploading ? '正在校验并导入…' : '导入 PDF 课件'}</Button><small>也可将 PDF 拖到这里 · 最大 100 MB</small>{materials.length > 0 && <p>或从左侧目录打开已有课件。</p>}</div>}
-      {selected && !resetting && <><div className="documentHeading"><PdfIcon /><h1>{selected.filename.replace(/\.pdf$/i, '')}</h1><Tag>{selected.page_count}页</Tag></div>{documentLoading && <div className="loading" role="status"><Spin size="small" /> 正在加载课件…</div>}{pdf && <Reader key={selected.id} materialId={selected.id} pages={pages} pdf={pdf} store={store} onNotice={message => toast.success({ title: message, duration: 4, key: 'page-settings' })} onFailure={message => toast.error({ title: message, duration: 0, key: 'page-settings' })} mode={mode} onMode={changeMode} reader={reader} pageNavigator={pageNavigator} onSettings={settings => setPages(old => old.map(page => { const next = settings.find(item => item.id === page.id); return next ? { ...page, display: next.display, settings_version: next.settings_version } : page }))} />}</>}
+      {selected && !resetting && <><div className="documentHeading"><PdfIcon /><h1>{selected.filename.replace(/\.pdf$/i, '')}</h1><Tag>{selected.page_count}页</Tag></div>{documentLoading && <div className="loading" role="status"><Spin size="small" /> 正在加载课件…</div>}{pdf && <Reader key={selected.id} materialId={selected.id} pages={pages} pdf={pdf} store={store} onFailure={message => toast.error({ title: message, duration: ERROR_DURATION, key: 'page-settings' })} mode={mode} onMode={changeMode} reader={reader} pageNavigator={pageNavigator} onSettings={settings => setPages(old => old.map(page => { const next = settings.find(item => item.id === page.id); return next ? { ...page, display: next.display, settings_version: next.settings_version } : page }))} />}</>}
     </main></section>
-    {target && targetMaterial && targetLocation && <ConflictPage key={target.url} material={targetMaterial} number={targetLocation.number} entry={target} store={store} onNotice={message => toast.success({ title: message, duration: 4 })} onFailure={message => toast.error({ title: message, duration: 0 })} onReturn={() => { setTargetUrl(''); if (reader.current) reader.current.scrollTop = returnPosition.current }} />}
+    {target && targetMaterial && targetLocation && <ConflictPage key={target.url} material={targetMaterial} number={targetLocation.number} entry={target} store={store} onReturn={() => { setTargetUrl(''); if (reader.current) reader.current.scrollTop = returnPosition.current }} />}
     </div>
-    <ImportDialog open={importOpen} directory={directory} course={destinationCourse} chapter={importChapter} file={importFile} busy={uploading || directoryBusy || loading} error={error} duplicate={duplicate?.path} onOpenExisting={() => void openExisting()} onCourse={id => { setImportCourse(id); setImportChapter('') }} onChapter={setImportChapter} onFile={file => { setImportFile(file); setDuplicate(null); setError('') }} onReload={() => { void loadMaterials(); setImportCourse(''); setImportChapter('') }} onClose={() => setImportOpen(false)} onSubmit={() => void upload(importFile ?? undefined)} onCreate={(name, isChapter) => isChapter ? mutateDirectory('/api/chapters', 'POST', { name, course_id: destinationCourse }) : mutateDirectory('/api/courses', 'POST', { name })} />
+    <ImportDialog open={importOpen} directory={directory} course={destinationCourse} chapter={importChapter} file={importFile} busy={uploading || directoryBusy || loading} error={importError?.message ?? ''} duplicate={duplicate?.path} onOpenExisting={() => void openExisting()} onCourse={id => { setImportCourse(id); setImportChapter('') }} onChapter={setImportChapter} onFile={file => { setImportFile(file); setDuplicate(null); setImportError(null) }}
+      onReload={importError?.reload ? () => { void loadMaterials(setImportError); setImportCourse(''); setImportChapter('') } : undefined} onClose={closeImport} onSubmit={() => void upload(importFile ?? undefined)} onCreate={(name, isChapter) => isChapter ? mutateDirectory('/api/chapters', 'POST', { name, course_id: destinationCourse }) : mutateDirectory('/api/courses', 'POST', { name })} />
 
     {settingsOpen && <SystemSettings readOnly={readOnly} mode={displayMode} selectMode={selectMode} onClose={() => setSettingsOpen(false)}
       canReset={!readOnly && !uploading && !resetting && !directoryBusy && !loading}

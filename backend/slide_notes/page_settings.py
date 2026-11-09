@@ -2,7 +2,7 @@ from flask import jsonify, request
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
-from .models import Material, Page
+from .models import Material, Page, valid_version
 
 DISPLAYS = ("normal", "collapsed")
 
@@ -21,7 +21,7 @@ def register_page_settings(app, engine):
             return jsonify(error="页面状态仅支持 normal 或 collapsed。"), 400
         changes = {"display": body["display"]}
         items = body.get("pages")
-        if not isinstance(items, list) or len(items) != 1 or any(not isinstance(item, dict) or set(item) != {"id", "version"} or not isinstance(item["id"], str) or type(item["version"]) is not int or item["version"] < 0 for item in items):
+        if not isinstance(items, list) or len(items) != 1 or any(not isinstance(item, dict) or set(item) != {"id", "version"} or not isinstance(item["id"], str) or not valid_version(item["version"]) for item in items):
             return jsonify(error="请提供一个页面及有效版本号。"), 400
         ids = [item["id"] for item in items]
         if len(ids) != len(set(ids)):

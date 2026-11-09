@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Badge, Button, Descriptions, Modal, Radio, Tooltip } from 'antd'
+import { version } from '../package.json'
 import { api } from './api'
 import { overlayContainer, type DisplayMode } from './theme'
 
@@ -59,6 +60,7 @@ export function SystemSettings({ mode, selectMode, readOnly, canReset, onClose, 
       <Descriptions size="small" column={1} items={[
         { key: 'build', label: '前端构建时间', children: localTime(__BUILD_TIME__) },
         { key: 'started', label: '后端启动时间', children: started ? localTime(started) : '—' },
+        { key: 'version', label: '版本', children: 'v' + version.split('.').slice(0, 2).join('.') },
       ]} />
     </Modal>
     <Modal open={confirming} title="清空全部数据？" getContainer={overlayContainer} okText="确认清空" cancelText="取消"

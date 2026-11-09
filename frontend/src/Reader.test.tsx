@@ -1,5 +1,5 @@
 import { openMaterial } from './testInteractions'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import App from './App'
 
@@ -11,6 +11,7 @@ function fixture(displays = ['normal', 'normal', 'normal']) {
   let pages = displays.map((display, i) => ({ id: `p${i + 1}`, number: i + 1, note: '', version: 0, summary: '', summary_version: 0, qa: [], display, settings_version: 0 }))
   const material = { id: 'a', filename: '课件.pdf', page_count: pages.length, course_id: 'c', chapter_id: null, position: 0 }
   const fetch = vi.fn(async (url: string, options?: RequestInit) => {
+    if (url === '/api/status') return Response.json({ status: 'ok' })
     if (url === '/api/directory') return new Response(JSON.stringify({ revision: 0, courses: [{ id: 'c', name: '课程', position: 0 }], chapters: [], materials: [material] }))
     if (options?.method === 'PATCH') {
       const body = JSON.parse(options.body as string)
@@ -26,7 +27,7 @@ function fixture(displays = ['normal', 'normal', 'normal']) {
 async function open() {
   render(<App />)
   await openMaterial('课件.pdf')
-  await screen.findByText('PDF 第 1 页')
+  await screen.findByText('PDF 第 1 页', {}, { timeout: 3500 })
 }
 it('preserves unsaved drafts across all modes and provides strictly read-only review', async () => {
   const fetch = fixture()
@@ -185,7 +186,7 @@ it('persists fold and expand states and exposes none of the removed controls', a
   fireEvent.change(screen.getAllByLabelText('个人笔记')[0], { target: { value: '折叠保留草稿' } })
   fireEvent.click(screen.getByLabelText('折叠第 1 页'))
   await waitFor(() => expect(screen.getByLabelText('展开第 1 页')).toBeTruthy())
-  expect(screen.getByText('PDF 第 1 页').closest('[hidden]')).toBeTruthy()
+  expect(screen.getByText('PDF 第 1 页').closest('[inert]')?.closest('[data-collapsed]')?.getAttribute('data-collapsed')).toBe('true')
   const body = JSON.parse(fetch.mock.calls.find(call => call[1]?.method === 'PATCH')![1]!.body as string)
   expect(body).toEqual({ pages: [{ id: 'p1', version: 0 }], display: 'collapsed' })
   expect((screen.getAllByLabelText('个人笔记')[0] as HTMLTextAreaElement).value).toBe('折叠保留草稿')
@@ -235,12 +236,64 @@ it('refreshes only display state on version conflict and preserves note drafts',
   const fetch = fixture()
   await open()
   fireEvent.change(screen.getAllByLabelText('个人笔记')[0], { target: { value: '本地笔记' } })
-  fetch.mockImplementationOnce(async () => Response.json({ error: '显示状态冲突' }, { status: 409 }))
-  fetch.mockImplementationOnce(async () => Response.json([{ id: 'p1', number: 1, display: 'collapsed', settings_version: 7, note: '服务器旧笔记' }]))
+  const original = fetch.getMockImplementation()!
+  let conflictSent = false
+  fetch.mockImplementation(async (url, options) => {
+    if (options?.method === 'PATCH' && !conflictSent) {
+      conflictSent = true
+      return Response.json({ error: '显示状态冲突' }, { status: 409 })
+    }
+    if (url === '/api/materials/a/pages') {
+      return Response.json([{ id: 'p1', number: 1, display: 'collapsed', settings_version: 7, note: '服务器旧笔记' }])
+    }
+    return original(url, options)
+  })
   fireEvent.click(screen.getByLabelText('折叠第 1 页'))
-  await waitFor(() => expect(screen.getByLabelText('展开第 1 页')).toBeTruthy())
+  await waitFor(() => expect((screen.getByLabelText('展开第 1 页') as HTMLButtonElement).disabled).toBe(false))
   expect((screen.getAllByLabelText('个人笔记')[0] as HTMLTextAreaElement).value).toBe('本地笔记')
   fireEvent.click(screen.getByLabelText('展开第 1 页'))
   await waitFor(() => expect(fetch.mock.calls.filter(call => call[1]?.method === 'PATCH')).toHaveLength(2))
   expect(JSON.parse(fetch.mock.calls.filter(call => call[1]?.method === 'PATCH')[1][1]!.body as string).pages).toEqual([{ id: 'p1', version: 7 }])
+})
+
+it('mounts only nearby editors in a long continuous document and saves an unmounted draft', async () => {
+  let notify!: (changes: Partial<IntersectionObserverEntry>[]) => void
+  vi.stubGlobal('IntersectionObserver', class {
+    constructor(callback: typeof notify) { notify = callback }
+    observe() {}
+    disconnect() {}
+  })
+  const fetch = fixture(Array(200).fill('normal'))
+  await open()
+  const reader = document.querySelector<HTMLElement>('.readerScroll')!
+  const rows = Array.from(document.querySelectorAll<HTMLElement>('.pageRow'))
+  expect(rows).toHaveLength(200)
+  expect(reader.querySelectorAll('.notePanel')).toHaveLength(1)
+  expect(screen.getByLabelText('跳转页码').closest('.breadcrumb')).toBeNull()
+  rows.forEach((row, i) => vi.spyOn(row, 'getBoundingClientRect').mockImplementation(() =>
+    ({ top: i * 500 - reader.scrollTop, bottom: (i + 1) * 500 - reader.scrollTop }) as DOMRect))
+  act(() => notify([{ target: rows[0], isIntersecting: true }, { target: rows[1], isIntersecting: true }]))
+  const firstPage = within(rows[0])
+  const draft = '# 长笔记\n\n' + '滚走后仍保存 **Markdown**\n\n'.repeat(600)
+  fireEvent.click(firstPage.getByRole('button', { name: /个人笔记/ }))
+  fireEvent.change(firstPage.getByLabelText('个人笔记'), { target: { value: draft } })
+  reader.scrollTop = 99000
+  fireEvent.scroll(reader)
+  act(() => notify([
+    { target: rows[0], isIntersecting: false }, { target: rows[1], isIntersecting: false },
+    { target: rows[198], isIntersecting: true }, { target: rows[199], isIntersecting: true },
+  ]))
+  expect(firstPage.queryByLabelText('个人笔记')).toBeNull()
+  expect(reader.querySelectorAll('.notePanel')).toHaveLength(2)
+  expect(reader.scrollTop).toBe(99000)
+  await waitFor(() => expect(fetch.mock.calls.some(([url, request]) =>
+    url === '/api/pages/p1/note' && JSON.parse(request!.body as string).note === draft)).toBe(true), { timeout: 2500 })
+  reader.scrollTop = 0
+  fireEvent.scroll(reader)
+  act(() => notify([
+    { target: rows[198], isIntersecting: false }, { target: rows[199], isIntersecting: false },
+    { target: rows[0], isIntersecting: true }, { target: rows[1], isIntersecting: true },
+  ]))
+  expect(firstPage.getByRole('button', { name: /个人笔记/ }).getAttribute('aria-expanded')).toBe('true')
+  expect((firstPage.getByLabelText('个人笔记') as HTMLTextAreaElement).value).toBe(draft)
 })

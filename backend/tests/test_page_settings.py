@@ -78,7 +78,7 @@ def test_wrong_material_duplicate_ids_and_invalid_versions_are_atomic(app):
     target = f'/api/materials/{material["id"]}/page-settings'
     assert client.patch(target, json=payload(other_pages[:1], display='collapsed')).status_code == 404
     assert client.patch(target, json=payload([pages[0], pages[0]], display='collapsed')).status_code == 400
-    for bad in (True, -1, '0', None):
+    for bad in (True, -1, '0', None, 2**63 - 1, 2**63):
         assert client.patch(target, json={'pages': [{'id': pages[0]['id'], 'version': bad}], 'display': 'collapsed'}).status_code == 400
     assert client.patch(target, json={'pages': [], 'display': 'collapsed'}).status_code == 400
     assert client.patch('/api/materials/missing/page-settings', json=payload(pages[:1], display='collapsed')).status_code == 404

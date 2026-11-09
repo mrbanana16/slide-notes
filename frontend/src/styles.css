@@ -27,7 +27,7 @@ body { margin: 0; background: var(--canvas); color: var(--ink); }
 .treeRow { display: flex; align-items: center; position: relative; min-width: 0; gap: 4px; min-height: 36px; }
 .treeName { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; font-size: 14px; }
 .treeName > .anticon { color: var(--muted); flex: none; }
-.treeText { min-width: 0; overflow-wrap: anywhere; line-height: 1.6; padding-block: 4px; }
+.treeText { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; min-width: 0; overflow-wrap: anywhere; line-height: 1.6; margin-block: 4px; }
 .treeText strong { font-weight: 400; }
 .treeName small { color: var(--muted); font-size: 12px; white-space: nowrap; margin-left: auto; }
 .treeActions { display: inline-flex; position: absolute; z-index: 1; right: 0; top: 50%; transform: translateY(-50%); }
@@ -49,19 +49,18 @@ body { margin: 0; background: var(--canvas); color: var(--ink); }
 .readerScroll { height: 100%; overflow: auto; min-width: 0; overflow-anchor: none; }
 .toolbar { display: flex; align-items: center; gap: 12px; padding: 0 20px; min-width: 0; background: var(--surface); border-bottom: 1px solid var(--line); }
 .readerScroll > .toolbar { position: sticky; top: 0; z-index: 8; min-height: 64px; }
-.breadcrumb { flex: 1; min-width: 0; }
+.readingLocation { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; }
+.breadcrumb { min-width: 0; }
 .breadcrumb ol { flex-wrap: nowrap; overflow: hidden; }
-.breadcrumb li { min-width: 0; white-space: nowrap; flex-shrink: 0; }
-.breadcrumb li:last-child { flex: 1; overflow: hidden; }
-.breadcrumb li:last-child .ant-breadcrumb-link { display: flex; min-width: 0; }
-.breadcrumb .ant-typography { width: 100%; max-width: 100%; }
-.breadcrumbFile { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.breadcrumbFile .ant-typography { flex: 0 1 auto; width: auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pageNavigatorHost { flex: none; }
+.breadcrumb li { min-width: 0; white-space: nowrap; overflow: hidden; }
+.breadcrumb li.ant-breadcrumb-separator, .pageNavigatorHost { flex: none; }
+.breadcrumb li .ant-breadcrumb-link { display: flex; min-width: 0; }
+.breadcrumb .ant-typography { display: block; max-width: 100%; }
+.pageNavigatorHost:empty { display: none; }
 .topPageNavigator { display: flex; align-items: center; gap: 3px; color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
-.topPageNavigator .ant-input-number { width: 42px; min-width: 42px; flex: none; border-color: transparent; box-shadow: none; background: transparent; }
+.topPageNavigator .ant-input-number { min-width: 0; padding-inline: 5px; font-variant-numeric: tabular-nums; flex: none; border-color: transparent; box-shadow: none; background: transparent; }
 .topPageNavigator .ant-input-number:hover, .topPageNavigator .ant-input-number:focus-within { border-color: var(--line); background: var(--canvas); }
-.topPageNavigator .ant-input-number-input { width: 100%; text-align: center;}
+.topPageNavigator .ant-input-number-input { min-width: 0; width: 100%; padding-inline: 0; text-align: center; font-variant-numeric: inherit; }
 .modeSwitcher { flex-shrink: 0; }
 .modeSwitcher .ant-tabs-nav { margin: 0; }
 .modeSwitcher .ant-tabs-content-holder { display: none; }
@@ -79,12 +78,14 @@ h1 { font-size: 24px; font-weight: 600; margin: 0; overflow-wrap: anywhere; }
 .readingTools .ant-select { min-width: 112px; }
 .pageRow { margin-bottom: 32px; scroll-margin-top: calc(var(--toolbar-height, 64px) + 12px); }
 .pageLabel { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; position: relative; margin-bottom: 12px; }
-.pageFoldToggle { position: absolute; left: -28px; top: 50%; transform: translateY(-50%); z-index: 1; }
+.pageFoldToggle { position: absolute; left: max(-28px, -3vw); top: 50%; transform: translateY(-50%); z-index: 1; }
 .pageColumns { display: grid; grid-template-columns: minmax(0,var(--pdf-width)) 0 minmax(0,1fr); align-items: stretch; border: 1px solid var(--line); background: var(--surface); }
 .pdfSurface { background: var(--pdf-mat); padding: 20px; display: flex; flex-direction: column; }
 .pdfViewport { overflow-x: auto; overflow-y: hidden; }
 .pdfPage { --scale-round-x: 1px; --scale-round-y: 1px; position: relative; width: 100%; aspect-ratio: 1.414; background: #fff; color-scheme: light; }
 .pdfPage canvas { display: block; position: absolute; inset: 0; }
+.noteSlot { min-width: 0; border-left: 1px solid var(--soft-line); }
+.noteSlot > .notePanel { border: 0; }
 .notePanel { min-width: 0; border-left: 1px solid var(--soft-line); padding: 4px 12px 12px; }
 .noteSection + .noteSection { border-top: 1px solid var(--soft-line); }
 .noteSection .ant-collapse { background: transparent; }
@@ -92,7 +93,8 @@ h1 { font-size: 24px; font-weight: 600; margin: 0; overflow-wrap: anywhere; }
 .noteSection .ant-collapse .ant-collapse-body { padding: 0 0 16px; }
 .noteTitle { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .noteTitle strong { font-size: 14px; font-weight: 600; }
-.noteTitle small { margin: 0 12px 0 auto; font-size: 12px; font-weight: 400; color: var(--muted); }
+.noteTitleMeta { display: inline-flex; align-items: center; gap: 8px; margin-inline: auto 12px; }
+.noteTitle small { font-size: 12px; font-weight: 400; color: var(--muted); }
 .fieldHeading, .qaHeading { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .fieldHeading { padding: 8px; border-bottom: 1px solid var(--soft-line); }
 .fieldCaption { color: var(--muted); font-size: 12px; }
@@ -169,26 +171,27 @@ h1 { font-size: 24px; font-weight: 600; margin: 0; overflow-wrap: anywhere; }
 .saveTimelineItem > .ant-badge { position: absolute; left: -18px; top: 7px; line-height: 1; }
 .saveTimelineItem .ant-badge-status-dot { width: 8px; height: 8px; margin: 0; }
 .saveTimelineText { min-width: 0; }
+.retrySave { padding-inline: 4px; }
 .saveTimelineTitle { color: var(--ink); font-size: 13px; }
 .saveTimelineMeta { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
 .saveTimelineHint { margin-top: 0; color: var(--muted); opacity: .66; font-size: 11px; line-height: 1.45; }
 .conflictPage { position: absolute; inset: 0; z-index: 10; overflow: auto; padding: 20px; background: var(--canvas); }
 .conflictColumns { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); background: var(--surface); }
-.systemAlerts { position: sticky; top: var(--toolbar-height, 64px); z-index: 7; }
+.systemAlerts { width: 100%; position: sticky; top: var(--toolbar-height, 64px); z-index: 7; }
+.systemAlerts > .ant-alert { width: 100%; }
 :root[data-theme-switch] *, :root[data-theme-switch] *::before, :root[data-theme-switch] *::after { transition: none !important; }
 :root::view-transition-old(root), :root::view-transition-new(root) { animation-duration: var(--motion-mid); animation-timing-function: var(--motion-ease); }
 @container (max-width: 650px) {
   .pageColumns { grid-template-columns: minmax(0,1fr); }
   .pageColumns > .sizeDivider { display: none; }
-  .notePanel { border-left: 0; border-top: 1px solid var(--line); }
+  .notePanel, .noteSlot { border-left: 0; border-top: 1px solid var(--line); }
 }
-@media (max-width: 1000px) { .pageColumns { grid-template-columns: minmax(0,1fr); } .pageColumns > .sizeDivider { display: none; } .notePanel { border-left: 0; border-top: 1px solid var(--line); } }
+@media (max-width: 1000px) { .pageColumns { grid-template-columns: minmax(0,1fr); } .pageColumns > .sizeDivider { display: none; } .notePanel, .noteSlot { border-left: 0; border-top: 1px solid var(--line); } }
 @media (max-width: 800px) { .conflictColumns { grid-template-columns: 1fr; } }
 @media (max-width: 740px) {
   .workspace, .workspace.sidebarClosed { grid-template-columns: 0 minmax(0,1fr); }
   .toolbar { gap: 4px; padding: 0 8px; flex-wrap: wrap; }
-  .breadcrumb { flex-basis: 100%; order: 5; padding-bottom: 8px; }
-  .breadcrumb .ant-typography { max-width: 100%; }
+  .readingLocation { flex-basis: 100%; order: 5; padding-bottom: 8px; }
   .modeSwitcher { flex: 1; }
   .modeSwitcher .ant-tabs-tab + .ant-tabs-tab { margin-left: 16px; }
   .reader { padding: 20px 12px 48px; }
@@ -205,13 +208,12 @@ h1 { font-size: 24px; font-weight: 600; margin: 0; overflow-wrap: anywhere; }
 .directoryTree .ant-tree-switcher::before { inset: 4px 0; border-radius: 6px; box-shadow: none; }
 .treeChevron { display: inline-flex; align-items: center; justify-content: center; transform: rotate(0deg); transition: transform var(--motion-fast) var(--motion-ease); }
 .treeChevron.expanded { transform: rotate(90deg); }
-.pageColumns[hidden] { display: none; }
-@media (hover: hover) {
+@media (min-width: 741px) and (hover: hover) {
   .pageFoldToggle { opacity: 0; transition: opacity var(--motion-fast) var(--motion-ease); }
   .pageLabel:hover .pageFoldToggle, .pageFoldToggle:focus-visible, .pageFoldToggle[aria-busy="true"], .pageFoldToggle.ant-btn-loading { opacity: 1; }
 }
 @media (max-width: 740px) {
-  .pageFoldToggle { left: -8px; transform: translate(-100%,-50%); }
+  .pageFoldToggle { position: static; transform: none; flex: none; }
 }
 
 .breadcrumb ol, .breadcrumb li { align-items: center; }

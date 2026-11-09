@@ -120,9 +120,10 @@ export function Directory({ data: savedData, selected, busy: externalBusy, onSel
     const ids = node.kind === 'courses' ? order.course_ids.filter(id => !data.courses.find(course => course.id === id)?.is_system)
       : node.kind === 'chapters' ? order.chapter_ids[node.course] : order.material_ids[item!.chapter_id ?? item!.course_id]
     return <div className="treeRow">
-      <span className={item ? 'treeName material' : 'treeName'} title={String(node.title)} aria-label={String(node.title)} aria-current={selected === id ? 'page' : undefined}>
+      <span className={item ? 'treeName material' : 'treeName'} title={item ? '' : String(node.title)} aria-label={String(node.title)} aria-current={selected === id ? 'page' : undefined}>
         {item ? <FilePdfOutlined aria-hidden="true" /> : closed.has(id) ? <FolderOutlined aria-hidden="true" /> : <FolderOpenOutlined aria-hidden="true" />}
-        <span className="treeText">{item ? <strong>{node.title}</strong> : node.title}</span>{item && <small>{item.page_count} 页</small>}
+        {item ? <><Tooltip title={item.filename}><span className="treeText"><strong>{item.filename}</strong></span></Tooltip><small>{item.page_count} 页</small></>
+          : <span className="treeText">{node.title}</span>}
       </span>
       <span className="treeActions" onClick={event => event.stopPropagation()} onKeyDown={event => event.stopPropagation()} onMouseDown={event => event.stopPropagation()} draggable={false} onDragStart={event => { event.preventDefault(); event.stopPropagation() }}>{controls(node.kind, id, String(node.title), ids)}</span>
     </div>
@@ -164,6 +165,5 @@ export function Directory({ data: savedData, selected, busy: externalBusy, onSel
       onDragEnter={info => setClosed(new Set([...data.courses, ...data.chapters].filter(item => !info.expandedKeys.includes(item.id)).map(item => item.id)))}
       onDrop={onDrop} /></nav>
     {transfer && <TransferDialog data={savedData} order={transfer} onCancel={() => setTransfer(null)} onConfirm={() => { const next = transfer; setTransfer(null); void saveOrder(next) }} />}
-    {!data.courses.length && <p className="directoryEmpty">先创建课程，再导入课件。</p>}
   </>
 }

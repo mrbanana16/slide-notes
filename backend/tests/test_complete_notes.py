@@ -67,12 +67,12 @@ def test_summary_conflict_and_clear(app):
     assert client.put(url, json={'summary': '', 'version': 1}).get_json()['summary'] == ''
 
 
-@pytest.mark.parametrize('body', [None, [], {}, {'summary': 2, 'version': 0}, {'summary': '', 'version': True}, {'summary': '', 'version': -1}, {'summary': 'x' * 1_000_001, 'version': 0}])
+@pytest.mark.parametrize('body', [None, [], {}, {'summary': 2, 'version': 0}, {'summary': '', 'version': True}, {'summary': '', 'version': -1}, {'summary': '', 'version': 2**63 - 1}, {'summary': '', 'version': 2**63}, {'summary': 'x' * 1_000_001, 'version': 0}])
 def test_summary_validation(app, body):
     assert app.test_client().put('/api/pages/missing/summary', json=body).status_code == 400
 
 
-@pytest.mark.parametrize('body', [None, [], {}, {'question': '', 'answer': '', 'version': True}, {'question': '', 'answer': '', 'version': -1}, {'question': '', 'answer': '', 'version': 0, 'deleted': 'yes'}, {'question': 1, 'answer': '', 'version': 0}, {'question': '', 'answer': 'x' * 1_000_001, 'version': 0}])
+@pytest.mark.parametrize('body', [None, [], {}, {'question': '', 'answer': '', 'version': True}, {'question': '', 'answer': '', 'version': -1}, {'question': '', 'answer': '', 'version': 2**63 - 1}, {'question': '', 'answer': '', 'version': 2**63}, {'question': '', 'answer': '', 'version': 0, 'deleted': 'yes'}, {'question': 1, 'answer': '', 'version': 0}, {'question': '', 'answer': 'x' * 1_000_001, 'version': 0}])
 def test_qa_validation(app, body):
     assert app.test_client().put('/api/pages/missing/qa/' + 'a' * 32, json=body).status_code == 400
 

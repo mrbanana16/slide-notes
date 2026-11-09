@@ -77,3 +77,7 @@ class QAEntry(Base):
     position: Mapped[int] = mapped_column(Integer)
     version: Mapped[int] = mapped_column(Integer, default=0)
     deleted: Mapped[bool] = mapped_column(default=False)
+
+
+def valid_version(value):
+    return type(value) is int and 0 <= value < 2**63 - 1
