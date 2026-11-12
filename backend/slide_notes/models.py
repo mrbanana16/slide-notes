@@ -36,7 +36,7 @@ class DirectoryState(Base):
 
 class Material(Base):
     __tablename__ = "materials"
-    __table_args__ = (Index("uq_materials_content_hash", "content_hash", unique=True),)
+    __table_args__ = (Index("ix_materials_content_hash", "content_hash"),)
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
     course_id: Mapped[str] = mapped_column(ForeignKey("courses.id"))
     chapter_id: Mapped[str | None] = mapped_column(ForeignKey("chapters.id"), nullable=True)
@@ -55,17 +55,17 @@ class Page(Base):
     number: Mapped[int] = mapped_column(Integer)
     display: Mapped[str] = mapped_column(Text, default="normal")
     settings_version: Mapped[int] = mapped_column(Integer, default=0)
-    note: Mapped["PageNote"] = relationship(cascade="all, delete-orphan", single_parent=True)
+    personal_note_version: Mapped[int] = mapped_column(Integer, default=0)
+    ai_summary_version: Mapped[int] = mapped_column(Integer, default=0)
+    note: Mapped["PageNote | None"] = relationship(cascade="all, delete-orphan", single_parent=True)
     qa: Mapped[list["QAEntry"]] = relationship(cascade="all, delete-orphan", order_by="QAEntry.position, QAEntry.id")
 
 
 class PageNote(Base):
     __tablename__ = "page_notes"
     page_id: Mapped[str] = mapped_column(ForeignKey("pages.id"), primary_key=True)
-    content: Mapped[str] = mapped_column(Text, default="")
-    version: Mapped[int] = mapped_column(Integer, default=0)
-    summary: Mapped[str] = mapped_column(Text, default="")
-    summary_version: Mapped[int] = mapped_column(Integer, default=0)
+    personal_note: Mapped[str] = mapped_column(Text, default="")
+    ai_summary: Mapped[str] = mapped_column(Text, default="")
 
 
 class QAEntry(Base):

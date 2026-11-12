@@ -21,6 +21,8 @@ GlobalWorkerOptions.workerSrc = workerUrl
 const ERROR_DURATION = 5
 const CONNECTION_CHECK_MS = 5000
 type OperationError = { message: string; reload?: boolean }
+type ImportResult = Material & { duplicate?: boolean; location?: { course_name: string; chapter_name: string | null } }
+const MAX_PDF_BYTES = 100 * 1024 * 1024
 
 function RetrySaveButton({ store, url }: { store: DraftStore; url: string }) {
   const enabled = useSyncExternalStore(store.subscribe, () => !store.offline && store.canRetry(url))
@@ -34,8 +36,15 @@ export default function App() {
   const materials = directory.materials
   const [directoryBusy, setDirectoryBusy] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
-  const [duplicate, setDuplicate] = useState<{ material: Material; path: string } | null>(null)
+  const [uploadDuplicate, setUploadDuplicate] = useState<ImportResult | null>(null)
   const [importFile, setImportFile] = useState<File | null>(null)
+  const [importCheck, setImportCheck] = useState<{ file: File; error?: string; match?: ImportResult | null; pageCount?: number; encrypted?: boolean } | null>(null)
+  const checkedImport = importFile && importCheck?.file === importFile ? importCheck : null
+  const duplicate = uploadDuplicate ?? checkedImport?.match
+  const checkingFile = !!importFile && !checkedImport
+  const duplicatePath = duplicate && (duplicate.location
+    ? [duplicate.location.course_name, duplicate.location.chapter_name, duplicate.filename].filter(Boolean).join(' / ')
+    : materialPath(directory, duplicate))
   const [importCourse, setImportCourse] = useState('')
   const [importChapter, setImportChapter] = useState('')
   const [documentRetry, setDocumentRetry] = useState(0)
@@ -51,6 +60,9 @@ export default function App() {
   const [loading, setLoading] = useState(true)
   const [uploading, setUploading] = useState(false)
   const [documentLoading, setDocumentLoading] = useState(false)
+  const [originalUnavailable, setOriginalUnavailable] = useState(false)
+  const [replacingOriginal, setReplacingOriginal] = useState(false)
+  const originalInput = useRef<HTMLInputElement>(null)
   const [modal, modalHolder] = Modal.useModal()
   const narrow = useMediaPreference('(max-width: 740px)')
   const width = useLayoutSize('slide-notes:sidebar-width', 320, 215, 440)
@@ -105,6 +117,70 @@ export default function App() {
   }
   useEffect(() => { void loadMaterials() }, [])
   useEffect(() => {
+    if (!importFile) return
+    const file = importFile
+    const controller = new AbortController()
+    let pdfTask: ReturnType<typeof getDocument> | undefined
+    if (!file.name.toLowerCase().endsWith('.pdf')) {
+      setImportCheck({ file, error: '请选择 PDF 文件。' })
+      return
+    }
+    if (file.size > MAX_PDF_BYTES) {
+      setImportCheck({ file, error: '文件超过 100 MB 限制。' })
+      return
+    }
+    async function check() {
+      try {
+        const bytes = await file.arrayBuffer()
+        if (controller.signal.aborted) return
+        pdfTask = getDocument({ data: new Uint8Array(bytes), password: '' })
+        const digestPromise = crypto.subtle.digest('SHA-256', bytes)
+        const [pdfResult, duplicateResult, digestResult] = await Promise.allSettled([
+          pdfTask.promise,
+          digestPromise.then(value => {
+            const hash = Array.from(new Uint8Array(value), byte => byte.toString(16).padStart(2, '0')).join('')
+            return api<ImportResult | null>(`/api/materials/duplicates?sha256=${hash}`, { signal: controller.signal })
+          }),
+          digestPromise,
+        ])
+        if (controller.signal.aborted) {
+          void pdfTask.destroy()
+          return
+        }
+        const errorCause = pdfResult.status === 'rejected' ? pdfResult.reason : null
+        const errorName = errorCause instanceof Error ? errorCause.name : ''
+        const error = errorName === 'PasswordException'
+          ? '此 PDF 需要打开密码，请先解除密码保护后重新选择。'
+          : errorName === 'InvalidPDFException'
+            ? 'PDF 已损坏或格式无效，无法读取。'
+            : pdfResult.status === 'fulfilled' && pdfResult.value.numPages === 0
+              ? 'PDF 中没有页面。'
+              : errorCause ? '文件无法读取，请确认文件完整后重新选择。' : undefined
+        const pageCount = pdfResult.status === 'fulfilled' ? pdfResult.value.numPages : undefined
+        const encrypted = pdfResult.status === 'fulfilled' && (await pdfResult.value.getPermissions()) !== null
+        void pdfTask.destroy()
+        setImportCheck({
+          file,
+          error: error ?? (duplicateResult.status === 'rejected' || digestResult.status === 'rejected'
+            ? '无法检查课件是否重复，请重试。'
+            : undefined),
+          match: duplicateResult.status === 'fulfilled' ? duplicateResult.value : undefined,
+          pageCount,
+          encrypted,
+        })
+      } catch {
+        if (!controller.signal.aborted) setImportCheck(old => old?.file === file
+          ? { ...old, error: old.error ?? '无法检查文件是否重复，请确认文件可读取后重试。' }
+          : { file, error: '无法检查文件，请确认文件可读取后重试。' })
+      }
+    }
+    void check()
+    return () => {
+      controller.abort()
+      if (pdfTask) void pdfTask.destroy()
+    }
+  }, [importFile])
+  useEffect(() => {
     if (!dirtyCount) return
     const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = '' }
     window.addEventListener('beforeunload', warn)
@@ -116,6 +192,7 @@ export default function App() {
     const generation = loadGeneration.current
     setPdf(null)
     setPages([])
+    setOriginalUnavailable(false)
     setError(null)
     setDocumentLoading(true)
     if (reader.current) reader.current.scrollTop = 0
@@ -123,12 +200,34 @@ export default function App() {
     void Promise.all([api<Page[]>(`/api/materials/${selected.id}/pages`), task.promise]).then(([nextPages, doc]) => {
       if (stopped || generation !== loadGeneration.current) return
       setPages(nextPages)
-      for (const page of nextPages) store.bind(page, selected.id)
+      store.bindPages(nextPages, selected.id)
       setPdf(doc)
-    }).catch(cause => { if (!stopped && generation === loadGeneration.current) setError({ message: cause instanceof Error ? cause.message : '课件加载失败。', reload: true }) })
+    }).catch(cause => {
+      if (stopped || generation !== loadGeneration.current) return
+      if (cause?.status === 410 || ['InvalidPDFException', 'PasswordException'].includes(cause?.name)) setOriginalUnavailable(true)
+      else setError({ message: cause instanceof Error ? cause.message : '课件加载失败。', reload: true })
+    })
       .finally(() => { if (!stopped && generation === loadGeneration.current) setDocumentLoading(false) })
     return () => { stopped = true; void task.destroy() }
   }, [selected?.id, documentRetry])
+
+  async function replaceOriginal(file: File) {
+    if (!selected || readOnly || operation.current) return
+    operation.current = true
+    setReplacingOriginal(true)
+    setError(null)
+    const form = new FormData()
+    form.append('file', file)
+    try {
+      await api(`/api/materials/${selected.id}/file`, { method: 'PUT', body: form })
+      setDocumentRetry(n => n + 1)
+    } catch (cause) {
+      setError({ message: cause instanceof Error ? cause.message : '原始 PDF 恢复失败。' })
+    } finally {
+      operation.current = false
+      setReplacingOriginal(false)
+    }
+  }
 
   function applyDirectory(next: DirectoryData) {
     setDirectory(next)
@@ -160,7 +259,7 @@ export default function App() {
   function prepareImport(file?: File) {
     if (operation.current || readOnly) return
     setImportError(null); setNotice('')
-    setDuplicate(null)
+    setUploadDuplicate(null)
     setImportFile(file ?? null)
     setImportCourse(selected?.course_id ?? directory.courses[0]?.id ?? '')
     setImportChapter(selected?.chapter_id ?? '')
@@ -186,14 +285,14 @@ export default function App() {
   async function openExisting() {
     if (!duplicate || operation.current) return
     const current = await loadMaterials(setImportError)
-    const material = current?.materials.find(m => m.id === duplicate.material.id)
+    const material = current?.materials.find(m => m.id === duplicate.id)
     if (!material) { setImportError({ message: '课件目录未能加载或课件已被删除，请重新加载目录。', reload: true }); return }
     setSelected(material); closeImport()
   }
-  async function upload(file?: File) {
-    if (!file || operation.current || readOnly) return
+  async function upload(file?: File, createCopy = false) {
+    if (!file || checkingFile || checkedImport?.error || operation.current || readOnly) return
     if (!file.name.toLowerCase().endsWith('.pdf')) { setImportError({ message: '请选择 PDF 文件。' }); return }
-    if (file.size > 100 * 1024 * 1024) { setImportError({ message: '文件超过 100 MB 限制。' }); return }
+    if (file.size > MAX_PDF_BYTES) { setImportError({ message: '文件超过 100 MB 限制。' }); return }
     operation.current = true
     setUploading(true)
     setNotice('')
@@ -201,14 +300,14 @@ export default function App() {
     try {
       const form = new FormData()
       form.append('file', file)
+      if (createCopy) form.append('create_copy', 'true')
       const course = importCourse || directory.courses[0]?.id
       if (!course) throw new Error('请先创建并选择课程。')
       form.append('course_id', course)
       if (importChapter) form.append('chapter_id', importChapter)
-      const { duplicate: exists, location, ...material } = await api<Material & { duplicate?: boolean; location?: { course_name: string; chapter_name: string | null } }>('/api/materials', { method: 'POST', body: form })
-      if (exists) {
-        const path = location ? [location.course_name, location.chapter_name, material.filename].filter(Boolean).join(' / ') : materialPath(directory, material)
-        setDuplicate({ material, path })
+      const material = await api<ImportResult>('/api/materials', { method: 'POST', body: form })
+      if (material.duplicate) {
+        setUploadDuplicate(material)
         return
       }
       if (!await loadMaterials(setImportError)) return
@@ -221,11 +320,12 @@ export default function App() {
   function closeImport() {
     setImportOpen(false)
     setImportError(null)
+    setImportCheck(null)
     setImportFile(null)
-    setDuplicate(null)
+    setUploadDuplicate(null)
   }
 
-  async function resetAllData() {
+  async function replaceAllData(backup: boolean, restoreId?: string) {
     if (operation.current || readOnly) return
     operation.current = true
     store.pause(true)
@@ -234,8 +334,10 @@ export default function App() {
     setError(null)
     setNotice('')
     try {
-      const result = await api<{ reset: boolean; directory: DirectoryData }>('/api/reset', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ confirmation: 'DELETE_ALL_DATA' }),
+      if (restoreId) await store.waitForPending()
+      const result = await api<{ backup_id?: string; directory: DirectoryData }>(restoreId ? `/api/backups/${restoreId}/restore` : '/api/reset', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(restoreId ? { confirmation: 'RESTORE_BACKUP' } : { confirmation: 'DELETE_ALL_DATA', ...(backup ? { backup } : {}) }),
       })
       setSelected(null)
       setPdf(null)
@@ -245,10 +347,11 @@ export default function App() {
       store.clear()
       setLoading(false)
       setDocumentLoading(false)
-      setNotice('全部数据已清空，可以重新导入课件。')
+      setNotice(restoreId ? '备份已恢复。' : result.backup_id ? '备份已创建，全部数据已清空。' : '全部数据已清空，可以重新导入课件。')
     } catch (cause) {
-      setError({ message: cause instanceof Error ? cause.message : '清空失败，请重试。' })
+      setError({ message: cause instanceof Error ? cause.message : '数据操作失败，请重试。' })
       setDocumentLoading(false)
+      if (documentLoading) setDocumentRetry(n => n + 1)
     } finally { operation.current = false; store.pause(false); setResetting(false) }
   }
 
@@ -385,14 +488,14 @@ export default function App() {
   }, [store])
   useEffect(() => {
     if (notice) toast.success({ title: notice, key: 'operation', duration: 4 })
-  }, [notice, toast])
+  }, [notice])
   useEffect(() => {
     if (!error || offline) return
     toast.error({
       title: error.message, key: error.reload ? 'operation-reload' : 'operation-error', duration: error.reload ? 0 : ERROR_DURATION,
       actions: error.reload && <Button onClick={() => void loadMaterials().then(result => { if (result && selected) setDocumentRetry(n => n + 1) })}>重新加载</Button>,
     })
-  }, [error, offline, toast])
+  }, [error, offline])
   return <WorkspaceTheme mode={displayMode}><div className={'workspace ' + (sidebarVisible && !narrow ? '' : 'sidebarClosed')}
     style={{ '--course-width': width.value + 'px' } as CSSProperties}>
     {modalHolder}{toastHolder}
@@ -437,23 +540,34 @@ export default function App() {
     </header>
     <div className="systemAlerts">{offline && <Alert type="error" showIcon title={<>后端连接失败，请检查服务是否运行，重连成功后将自动尝试保存。{retrySeconds
       ? `将在 ${retrySeconds} s 后重试连接…` : '正在重试连接…'}</>} />}
+    {selected && originalUnavailable && !resetting && <Alert type="warning" showIcon title="请重新导入原始 PDF 以恢复阅读。"
+      action={<Button disabled={readOnly} loading={replacingOriginal} onClick={() => originalInput.current?.click()}>重新导入原文件</Button>} />}
+    {selected && originalUnavailable && !resetting && <input ref={originalInput} type="file" accept="application/pdf,.pdf" hidden onChange={event => {
+      const file = event.currentTarget.files?.[0]
+      event.currentTarget.value = ''
+      if (file) void replaceOriginal(file)
+    }} />}
     {conflict && <Alert type="error" showIcon title="笔记存在版本冲突，本地草稿已保留。" action={<Button type="link" onClick={() => { returnPosition.current = reader.current?.scrollTop ?? 0; setTargetUrl(conflict.url) }}>查看冲突</Button>} />}</div>
     {dragging && <div className="dropOverlay">松开以导入 PDF</div>}
     <main className="reader" onDragOver={event => { if (event.dataTransfer.types.includes('Files')) { event.preventDefault(); if (!readOnly) setDragging(true) } }} onDragLeave={event => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setDragging(false) }} onDrop={event => { setDragging(false); const file = event.dataTransfer.files[0]; if (!file) return; event.preventDefault(); if (!readOnly) prepareImport(file) }}>
-      {resetting && <p role="status" className="loading">正在清空全部数据…</p>}
+      {resetting && <p role="status" className="loading">正在处理数据，请稍候…</p>}
       {store.storageError && <p role="alert" className="errorBanner">{store.storageError}</p>}
       {directoryBusy && <p role="status">正在保存目录…</p>}
       {loading && <p className="loading" role="status">正在读取课件目录…</p>}
       {!selected && !loading && <div className="emptyState"><Empty image={<ReadOutlined />} description={false} /><h1>从一份课件开始</h1><p>课件在左，理解在右。<br />逐页阅读，把重点写成自己的笔记。</p><Button type="primary" disabled={readOnly || uploading || resetting || directoryBusy || loading} onClick={() => prepareImport()}>{uploading ? '正在校验并导入…' : '导入 PDF 课件'}</Button><small>也可将 PDF 拖到这里 · 最大 100 MB</small>{materials.length > 0 && <p>或从左侧目录打开已有课件。</p>}</div>}
       {selected && !resetting && <><div className="documentHeading"><PdfIcon /><h1>{selected.filename.replace(/\.pdf$/i, '')}</h1><Tag>{selected.page_count}页</Tag></div>{documentLoading && <div className="loading" role="status"><Spin size="small" /> 正在加载课件…</div>}{pdf && <Reader key={selected.id} materialId={selected.id} pages={pages} pdf={pdf} store={store} onFailure={message => toast.error({ title: message, duration: ERROR_DURATION, key: 'page-settings' })} mode={mode} onMode={changeMode} reader={reader} pageNavigator={pageNavigator} onSettings={settings => setPages(old => old.map(page => { const next = settings.find(item => item.id === page.id); return next ? { ...page, display: next.display, settings_version: next.settings_version } : page }))} />}</>}
+      {selected && originalUnavailable && !resetting && <Empty className="originalUnavailable" description="原始 PDF 丢失或无法读取，已保存的笔记仍在。" />}
     </main></section>
     {target && targetMaterial && targetLocation && <ConflictPage key={target.url} material={targetMaterial} number={targetLocation.number} entry={target} store={store} onReturn={() => { setTargetUrl(''); if (reader.current) reader.current.scrollTop = returnPosition.current }} />}
     </div>
-    <ImportDialog open={importOpen} directory={directory} course={destinationCourse} chapter={importChapter} file={importFile} busy={uploading || directoryBusy || loading} error={importError?.message ?? ''} duplicate={duplicate?.path} onOpenExisting={() => void openExisting()} onCourse={id => { setImportCourse(id); setImportChapter('') }} onChapter={setImportChapter} onFile={file => { setImportFile(file); setDuplicate(null); setImportError(null) }}
+    <ImportDialog open={importOpen} directory={directory} course={destinationCourse} chapter={importChapter} file={importFile} busy={uploading || directoryBusy || loading}
+      checking={checkingFile} checkError={checkedImport?.error} pageCount={checkedImport?.pageCount} encrypted={checkedImport?.encrypted ?? false} error={importError?.message ?? ''} duplicate={duplicatePath ?? undefined}
+      onOpenExisting={() => void openExisting()} onCopy={() => void upload(importFile ?? undefined, true)} onCourse={id => { setImportCourse(id); setImportChapter('') }} onChapter={setImportChapter} onFile={file => { setImportFile(file); setUploadDuplicate(null); setImportError(null) }}
       onReload={importError?.reload ? () => { void loadMaterials(setImportError); setImportCourse(''); setImportChapter('') } : undefined} onClose={closeImport} onSubmit={() => void upload(importFile ?? undefined)} onCreate={(name, isChapter) => isChapter ? mutateDirectory('/api/chapters', 'POST', { name, course_id: destinationCourse }) : mutateDirectory('/api/courses', 'POST', { name })} />
 
     {settingsOpen && <SystemSettings readOnly={readOnly} mode={displayMode} selectMode={selectMode} onClose={() => setSettingsOpen(false)}
       canReset={!readOnly && !uploading && !resetting && !directoryBusy && !loading}
-      onReset={() => { setSettingsOpen(false); void resetAllData() }} />}
+      onReset={backup => { setSettingsOpen(false); void replaceAllData(backup) }}
+      onRestore={id => { setSettingsOpen(false); void replaceAllData(false, id) }} />}
   </div></WorkspaceTheme>
 }

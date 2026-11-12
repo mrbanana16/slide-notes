@@ -18,7 +18,7 @@ export default defineConfig({
         const { resolve, sep } = await import('node:path')
         const root = resolve('node_modules/pdfjs-dist')
         const path = resolve(root, '.' + (req.url?.split('?')[0] ?? ''))
-        if (!path.startsWith(root + sep) || !/\/(cmaps|standard_fonts|wasm)\//.test(path)) return next()
+        if (!path.startsWith(root + sep) || !/^(cmaps|standard_fonts|wasm)\//.test(path.slice(root.length + 1).split(sep).join('/'))) return next()
         const stream = createReadStream(path)
         stream.on('error', () => { res.statusCode = 404; res.end() })
         if (path.endsWith('.wasm')) res.setHeader('Content-Type', 'application/wasm')
@@ -27,5 +27,5 @@ export default defineConfig({
     },
   }],
   server: { proxy: { '/api': 'http://127.0.0.1:5001' } },
-  test: { testTimeout: 15000, environment: 'jsdom', setupFiles: ['src/testSetup.ts'] },
+  test: { testTimeout: 15000, environment: 'jsdom', include: ['tests/**/*.test.{ts,tsx}'], setupFiles: ['tests/testSetup.ts'] },
 })

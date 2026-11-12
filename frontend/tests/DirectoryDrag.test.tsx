@@ -1,11 +1,11 @@
-import { treeDropOrder } from './directoryTree'
+import { treeDropOrder } from '../src/directoryTree'
 import { directoryAction } from './testInteractions'
 import { useState } from 'react'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
-import { Directory } from './Directory'
-import { projectOrder, type Order } from './directoryOrder'
-import type { Directory as DirectoryData } from './api'
+import { Directory } from '../src/Directory'
+import { projectOrder, type Order } from '../src/directoryOrder'
+import type { Directory as DirectoryData } from '../src/api'
 
 const initial: DirectoryData = {
   revision: 1, courses: [{ id: 'c', name: '测试课程', position: 0 }], chapters: [],
@@ -64,4 +64,33 @@ it('keeps the pinned course undraggable and permits material transfers into it',
   expect(screen.getByLabelText('a.pdf').closest('.ant-tree-treenode')?.getAttribute('draggable')).toBe('true')
   expect(treeDropOrder(data, 'c', 'system', -1)).toBeNull()
   expect(treeDropOrder(data, 'a', 'system', 0)?.transfers).toEqual([{ material_id: 'a', from_course_id: 'c', to_course_id: 'system' }])
+})
+
+it('drops onto the last chapter and back onto the course itself', async () => {
+  const data = { ...initial, chapters: [{ id: 'last', course_id: 'c', name: '最后一章', position: 0 }] }
+  const mutate = vi.fn()
+  function Harness() {
+    const [directory, setDirectory] = useState(data)
+    return <Directory data={directory} selected="a" busy={false} onSelect={vi.fn()} onDelete={vi.fn()} mutate={async (_url, _method, body) => {
+      const order = body as Order
+      mutate(order)
+      setDirectory({ ...projectOrder(directory, order), revision: directory.revision + 1 })
+      return true
+    }} />
+  }
+  render(<Harness />)
+  const dragTo = (name: string) => {
+    const source = screen.getByLabelText('a.pdf').closest('.ant-tree-treenode')!
+    const target = screen.getByLabelText(name).closest('.ant-tree-treenode')!
+    const dataTransfer = { setData: vi.fn(), setDragImage: vi.fn(), types: [] }
+    fireEvent.dragStart(source, { dataTransfer })
+    fireEvent.dragOver(target, { dataTransfer })
+    expect(target.querySelector('[data-drop="0"]')).toBeTruthy()
+    fireEvent.drop(target, { dataTransfer })
+    fireEvent.dragEnd(source)
+  }
+  dragTo('最后一章')
+  await waitFor(() => expect(mutate.mock.calls[0][0].material_ids.last).toEqual(['a']))
+  dragTo('测试课程')
+  await waitFor(() => expect(mutate.mock.calls[1][0].material_ids.c).toEqual(['b', 'a']))
 })

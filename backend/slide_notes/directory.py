@@ -3,9 +3,9 @@ from uuid import uuid4
 
 from flask import Blueprint, abort, jsonify, request
 from sqlalchemy import func, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload, selectinload
 
-from .models import Chapter, Course, DirectoryState, Material
+from .models import Chapter, Course, DirectoryState, Material, Page
 
 SYSTEM_COURSE_ID = "00000000000000000000000000000000"
 
@@ -131,8 +131,10 @@ def register_directory(app, engine, data):
             material = session.get(Material, material_id)
             if material is None:
                 abort(404, description="课件不存在。")
-            notes = sum(bool(p.note.content) + bool(p.note.summary) + sum(not q.deleted for q in p.qa) for p in material.pages)
-            return jsonify(**material_json(material), note_count=notes, page_ids=[p.id for p in material.pages])
+            pages = list(session.scalars(select(Page).where(Page.material_id == material_id).order_by(Page.number)
+                                         .options(joinedload(Page.note), selectinload(Page.qa))))
+            notes = sum((bool(p.note.personal_note) + bool(p.note.ai_summary) if p.note else 0) + sum(not q.deleted for q in p.qa) for p in pages)
+            return jsonify(**material_json(material), note_count=notes, page_ids=[p.id for p in pages])
 
     @routes.delete("/api/materials/<material_id>")
     def delete_material(material_id):

@@ -1,7 +1,7 @@
 import { cleanup, render, waitFor } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import type { PDFDocumentProxy } from 'pdfjs-dist'
-import { PdfPage } from './PdfPage'
+import { PdfPage } from '../src/PdfPage'
 
 vi.mock('pdfjs-dist', () => ({ TextLayer: class { render = () => Promise.resolve(); cancel = vi.fn() } }))
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks() })

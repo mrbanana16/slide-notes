@@ -1,6 +1,6 @@
 # 前端页面列表
 
-2026-11-09 更新，阶段六已通过人工验收，发布版本为 v1.0。
+2026-11-11 更新，包含 Windows 维护改动。阶段六发布版本为 v1.0。
 
 ## 页面与页面内状态
 
@@ -15,9 +15,9 @@
 | 沉浸整理视图 `/` | 顶部「沉浸整理」，目录默认收起，可用顶栏菜单键展开 | 单页编辑、翻页、跳转、缩放、适应页面、逐页折叠／展开、全屏；退出沉浸回到整理 | `App.tsx`、`Reader.tsx`、`NoteEditor.tsx`、`PdfPage.tsx` | 共用笔记 PUT；PATCH `/api/materials/{id}/page-settings` |
 | 页面折叠／显示 | 每页页码左侧图标，宽屏悬停／聚焦显示，窄窗口及触屏常显 | 三模式均保存 normal／collapsed，折叠保留页码条；失败保持原状态，冲突读取最新状态后显式重试 | `Reader.tsx` 的 `togglePage` | PATCH `/api/materials/{id}/page-settings`；冲突时 GET `/api/materials/{id}/pages`，只合并显示属性 |
 | 课程目录 | 左侧课程 → 课程直属课件／章节 → 课件，标题最多两行，均为 `/` 内状态 | 创建课程、添加章节、折叠、改名、上移下移、拖动排序、跨章节／课程移动，跨课程需确认；普通空容器删除 | `Directory.tsx`、`directoryOrder.ts`、`directoryTree.ts`、`App.tsx` | GET `/api/directory`；POST `/api/courses`、`/api/chapters`；PATCH／DELETE `/api/courses/{id}`、`/api/chapters/{id}`；PATCH `/api/materials/{id}`；PUT `/api/directory/order` |
-| 导入归属弹窗 | 导入按钮或将 PDF 拖入工作区，Ant Design 弹窗 | 选择归属，或在下拉末项创建并选中课程／章节；选择或拖入文件、核对文件信息、取消／确认；文件错误随弹窗关闭清除，目录读取或版本冲突时可重新加载目录 | `ImportDialog.tsx`、`App.tsx` | POST `/api/courses`、`/api/chapters`；POST `/api/materials`；GET `/api/directory` |
+| 导入归属弹窗 | 导入按钮或将 PDF 拖入工作区，Ant Design 弹窗 | 选入 PDF 后立即并行检查文件可读性、加密状态、页数及内容重复；文件信息行同步显示页数。错误、加密和重复结果均在确认前反馈；重新选择文件时重做检查 | `ImportDialog.tsx`、`App.tsx` | GET `/api/materials/duplicates`；确认后 POST `/api/materials`；POST `/api/courses`、`/api/chapters` |
 | 跨课程转移确认 | 课件拖到另一课程／章节标题或课件间隙，或菜单选择另一课程目标 | 展示源位置与目标位置；取消不请求，确认后更新归属，保留页 ID 和笔记；目标折叠时自动展开 | `TransferDialog.tsx`、`Directory.tsx`、`directoryOrder.ts` | PUT `/api/directory/order`，包含 `transfers` 确认列表 |
-| 重复课件提示 | 上传返回 `duplicate: true`，仍在导入弹窗 | 显示“课件已存在”和课程／可选章节／课件完整位置；选择打开已有课件或关闭，不自动切换课件 | `ImportDialog.tsx`、`App.tsx` | POST `/api/materials`；用户选择打开后 GET `/api/directory` 和原课件页面／文件 |
+| 重复课件提示 | 选择文件后的查重返回匹配，或上传时发现新出现的重复课件 | 显示“课件已存在”和完整位置，可打开已有课件、在所选目录创建独立副本或取消 | `ImportDialog.tsx`、`App.tsx` | GET `/api/materials/duplicates`；创建副本时 POST `/api/materials` 并发送 `create_copy=true` |
 | 删除课件确认 | 课件「⋯」菜单，先查询删除影响再显示确认框 | 显示页数、已保存笔记／问答数、当前未保存编辑数；取消保留，确认后清理对应页草稿与迟到响应 | `Directory.tsx`、`App.tsx`、`drafts.ts` | GET／DELETE `/api/materials/{id}` |
 | 目录保存失败／版本冲突 | 修改目录失败或其他窗口已变更目录 | 保持原结构、提示错误；重新加载目录后重做操作，保留笔记草稿 | `App.tsx`、`ImportDialog.tsx` | GET `/api/directory`；原目录写接口 |
 | AI 解释与总结区 | 每页右侧第一个独立折叠区 | 手动输入／粘贴总结，源码编辑与预览，标题提示有无内容 | `NoteEditor.tsx` | PUT `/api/pages/{page_id}/summary` |
@@ -27,7 +27,9 @@
 | 冲突页整理 | 顶栏 Alert 的「查看冲突」，同一路由内临时显示原始页 | 展开对应笔记／总结／问答、核对双方版本、确认或返回原阅读位置 | `ConflictPage.tsx`、`NoteEditor.tsx` | GET 课件原文件及原有笔记 PUT |
 | 顶栏保存日志与恢复 | 悬停、点按或聚焦状态入口 | 当前会话跨课件最近五条结果，手动保存标记「（手动）」；可在失败通知和日志中重试，断联时显示自动重连倒计时 | `App.tsx`、`drafts.ts` | GET `/api/status`、`/api/directory` 及原保存接口 |
 | 系统设置 | 在 `/` 内从目录底部打开 Ant Design 弹窗 | 选择并记住显示模式，打开或刷新时检测后端；查看前端构建时间、后端启动时间和系统版本 | `SystemSettings.tsx`、`theme.tsx` | GET `/api/status` |
-| 清空全部数据确认 | 整理模式中，系统设置内的按钮打开二次确认弹窗；复习模式禁用，悬停或键盘聚焦可查看原因 | 取消或确认删除；成功回到首次使用状态 | `App.tsx`、`drafts.ts` | POST `/api/reset` |
+| 原始 PDF 补回 | 课件打开时发现原文件丢失或不可读 | 阅读区显示提示，顶栏提供「重新导入原文件」 | `App.tsx` | GET、PUT `/api/materials/{id}/file` |
+| 从备份恢复 | 整理模式 → 系统设置 → 从备份恢复 | 选择备份并确认覆盖，成功后重载目录并清除浏览器草稿 | `SystemSettings.tsx`、`App.tsx` | GET `/api/backups`、POST `/api/backups/{id}/restore` |
+| 清空全部数据确认 | 整理模式中，系统设置内的按钮打开二次确认弹窗；复习模式禁用，悬停或键盘聚焦可查看原因 | 可勾选备份数据库和原始 PDF，再确认清空；成功回到首次使用状态 | `App.tsx`、`drafts.ts` | POST `/api/reset` |
 
 以上源码路径均相对项目根目录，前端文件均位于 `frontend/src/`。API 请求封装在 `api.ts`，样式在 `styles.css`。
 
@@ -56,7 +58,7 @@
 - 顶栏显示全局保存状态。笔记板块标题右侧仅在未保存或保存失败时显示圆点，分别用黄色和红色区分，全部保存成功后消失。草稿恢复、保存失败和冲突在对应对象内另有提示。带「重试」的通知在对应保存成功后关闭，也可手动关闭。普通错误通知约 5 秒后消失。问答删除失败时保留原问答条数及输入，重试成功后移除该问答。
 - Markdown 支持基础语法、表格、代码块、任务列表。代码块显示开头反引号后标注的语言，常用语言按关键字、字符串、数字、注释等分色；未知语言保留标签和原文，无语言时显示“纯文本”，行内代码不添加语言栏。预览不执行原始 HTML，图片以占位文字代替且不发出图片请求；安全链接在新标签页打开。
 - AI 总结和解答由用户手动输入或粘贴，本阶段不调用 AI API。
-- PDF 内容去重与阶段一一致，重复文件在弹窗直接提示原位置，可选择打开已有课件。清空成功后清理本站点全部阶段二草稿，迟到保存响应不会恢复旧数据；其他窗口需刷新。
+- PDF 按文件内容匹配，重复时可从导入弹窗打开已有课件或创建副本。备份只包含已保存数据。清空或恢复前请关闭其他标签页，操作成功后清除站点草稿。
 
 ## 界面主题
 
@@ -64,7 +66,7 @@
 
 ## 构建与启动
 
-PyCharm：完成 Python 环境安装并确认项目 Node.js 后，停止旧后端／旧 Vite，选择唯一共享配置 [`run`](../.run/run.run.xml)。每次启动自动依次安装前端依赖（`npm ci`）、构建（`npm run build`）、启动 `backend/run.py`；前置任务成功结束后才启动后端。后端成功绑定端口后自动调用系统默认浏览器打开 <http://127.0.0.1:5001/>；浏览器调用失败仅记录提示，可手动访问，后端继续运行。IDE 和命令方式均有此行为。旧 `frontend_ci`、`frontend_build` 已删除，旧 `backend_run` 已替换为 `run`，请停用 IDE 中残留的旧配置。代码更新后停止服务并重新运行 `run`，再刷新页面；构建本身不启动 Vite 服务。后端启动自动迁移到 `0007`，原页面 ID 与笔记保持。
+PyCharm 使用共享配置 [`run`](../.run/run.run.xml) 依次安装前端依赖、构建并启动后端。已有最新前端构建时，可使用 [`run_backend`](../.run/run_backend.run.xml)。后端启动自动迁移到 `0008`，继续使用原有课件和笔记。
 
 命令方式（项目根目录）：
 

@@ -1,6 +1,6 @@
 # 后端接口列表
 
-2026-11-09 更新，阶段六接口已核对。
+2026-11-11 更新，包含 Windows 维护改动。
 
 ## 请求约定与实现位置
 
@@ -15,8 +15,9 @@
 |---|---|
 | [slide_notes/__init__.py](../backend/slide_notes/__init__.py) | `create_app`、路由、请求校验、事务及错误处理 |
 | [models.py](../backend/slide_notes/models.py) | Course、Chapter、DirectoryState、Material、Page、PageNote、QAEntry 数据模型 |
-| [storage.py](../backend/slide_notes/storage.py) | 数据库迁移初始化、SHA-256 计算、全量清空时的空数据库准备与文件切换／失败恢复 |
+| [storage.py](../backend/slide_notes/storage.py) | 数据库迁移初始化、SHA-256 计算、全量备份、清空与恢复时的数据库准备、文件切换及回滚 |
 | [0002_material_fingerprint.py](../backend/migrations/versions/0002_material_fingerprint.py) | 文件指纹字段及唯一索引；为旧课件回填指纹，保留已有重复课件与笔记 |
+| [0008_sparse_notes.py](../backend/migrations/versions/0008_sparse_notes.py) | 笔记字段改名，迁移独立版本号，删除历史空笔记行，允许同一指纹有多个副本 |
 | [test_import_reset.py](../backend/tests/test_import_reset.py) | 内容去重、并发导入、旧库迁移、清空确认／重建／失败恢复及与上传串行处理测试 |
 | [0001_material_pages.py](../backend/migrations/versions/0001_material_pages.py) | 初始数据库表迁移 |
 | [run.py](../backend/run.py) | 配置控制台 INFO 日志，创建 Waitress 服务，绑定成功后输出访问地址及数据目录，记录启动异常并处理停止清理 |
@@ -79,7 +80,7 @@
 
 ## IDE 启动入口
 
-PyCharm 仅保留共享配置 [`run`](../.run/run.run.xml)，使用项目 Node.js 依次执行 `frontend/package.json` 的 `npm ci`、`npm run build`，两项成功后使用项目 Python 虚拟环境运行 `backend/run.py`，提供上述 `127.0.0.1:5001` 服务。旧 `frontend_ci`、`frontend_build` 已删除，旧 `backend_run` 已替换为 `run`；请停用旧配置和旧进程，重新运行 `run` 并刷新页面。代码更新后同样需停止当前服务并重新运行；单独构建前端不会更新运行中的后端。脚本路径、解释器要求、环境变量、端口及命令方式不变，Python 依赖仍需单独安装。IDE 设置及等效命令见 [README 本地运行](../README.md#本地运行)。启动自动执行尚未应用的迁移（当前 `0007`，移除分类并将旧隐藏页恢复显示，保留折叠状态与内容）。后端成功绑定端口后通过 Python 标准库 `webbrowser` 调用系统默认浏览器打开首页，IDE 与命令启动均生效；绑定失败不调用浏览器，浏览器调用失败记录警告并继续提供服务。页面、静态资源路由和业务接口未变更。
+PyCharm 共享配置 `run` 使用项目 Node.js 执行 `npm ci` 和 `npm run build`，再使用项目虚拟环境运行 `backend/run.py`。已有最新构建时，可用 `run_backend` 直接启动。后端监听 `127.0.0.1:5001`，启动时自动迁移到 `0008`，绑定成功后打开默认浏览器。Windows 和 macOS 的解释器路径及等效终端命令见 [README 安装与启动](../README.md#安装与启动)。
 
 ## 控制台诊断日志
 
@@ -93,13 +94,13 @@ PyCharm 仅保留共享配置 [`run`](../.run/run.run.xml)，使用项目 Node.j
 |---|---|---|---|---|
 | GET | [运行状态](http://127.0.0.1:5001/api/status) | `runtime_status` | 检测服务并返回本次启动时间 | `SystemSettings.tsx` |
 | GET | [http://127.0.0.1:5001/api/materials](http://127.0.0.1:5001/api/materials) | `list_materials` | 查询所有课件，按课程 ID、章节 ID、位置、ID 返回扁平列表；界面目录以 `/api/directory` 为准 | [App.tsx](../frontend/src/App.tsx) （兼容查询；当前界面使用 `/api/directory`） |
-| POST | [http://127.0.0.1:5001/api/materials](http://127.0.0.1:5001/api/materials) | `upload` | 按内容识别重复文件；重复时返回已有课件，否则校验并创建课件及每页笔记记录 | [App.tsx](../frontend/src/App.tsx) 的 `upload` |
+| POST | [http://127.0.0.1:5001/api/materials](http://127.0.0.1:5001/api/materials) | `upload` | 按内容识别重复文件；重复时提示已有课件，经确认可创建独立副本；导入时批量创建页记录 | [App.tsx](../frontend/src/App.tsx) 的 `upload` |
 | GET | `http://127.0.0.1:5001/api/materials/{material_id}/pages` | `pages` | 按原始页码查询页面、总结、个人笔记与未删除问答 | [App.tsx](../frontend/src/App.tsx) 的课件加载 effect |
 | PATCH | `http://127.0.0.1:5001/api/materials/{material_id}/page-settings` | `page_settings.py` 的 `save_page_settings` | 单页折叠／显示，独立版本校验 | `Reader.tsx` 的 `togglePage` |
 | GET | `http://127.0.0.1:5001/api/materials/{material_id}/file` | `file` | 读取课件原始 PDF，供 PDF.js 展示 | [App.tsx](../frontend/src/App.tsx) 的 `getDocument` |
-| POST | [http://127.0.0.1:5001/api/reset](http://127.0.0.1:5001/api/reset) | `reset_all_data` | 确认后清空全部课件、笔记和上传文件并重建空数据库 | [App.tsx](../frontend/src/App.tsx) 的 `resetAllData` |
-| PUT | `http://127.0.0.1:5001/api/pages/{page_id}/note` | `save_note` | 按版本号保存个人笔记，防止旧版本覆盖 | [NoteEditor.tsx](../frontend/src/NoteEditor.tsx) 的保存状态组件及 `drafts.ts` 的 `save` |
-| PUT | `http://127.0.0.1:5001/api/pages/{page_id}/summary` | `save_summary` | 独立版本号保存手动输入的 AI 总结 | `drafts.ts` 的 `save` |
+| POST | [http://127.0.0.1:5001/api/reset](http://127.0.0.1:5001/api/reset) | `reset_all_data` | 确认后清空全部课件、笔记和上传文件并重建空数据库，可选备份 | [App.tsx](../frontend/src/App.tsx) 的 `replaceAllData` |
+| PUT | `http://127.0.0.1:5001/api/pages/{page_id}/note` | `save_page_text` | 按版本号保存个人笔记，防止旧版本覆盖 | [NoteEditor.tsx](../frontend/src/NoteEditor.tsx) 的保存状态组件及 `drafts.ts` 的 `save` |
+| PUT | `http://127.0.0.1:5001/api/pages/{page_id}/summary` | `save_page_text` | 独立版本号保存手动输入的 AI 总结 | `drafts.ts` 的 `save` |
 | PUT | `http://127.0.0.1:5001/api/pages/{page_id}/qa/{entry_id}` | `save_qa` | 创建／修改／软删除一条问答，保留删除版本以防旧请求恢复 | `drafts.ts` 的 `save` |
 
 链接只表示请求地址；POST 和 PUT 需要用相应方法及请求体调用，点击链接不会执行写入。
@@ -118,7 +119,7 @@ PyCharm 仅保留共享配置 [`run`](../.run/run.run.xml)，使用项目 Node.j
 
 ### POST /api/materials
 
-表单字段：`file`（PDF）、`course_id`（所属课程 ID）、`chapter_id`（可选章节 ID，空字符串视为无章节）。新界面必须选择课程；为兼容旧调用，省略 `course_id` 时使用固定系统“未分类”，不按名称查找或创建普通课程。提供归属时，课程必须存在、章节必须属于该课程，否则 400；校验失败清理临时文件和本次原文件。重复内容优先返回已有课件，不修改原归属。新导入追加到目标组末尾并递增目录版本，重复导入不递增。
+表单接受 `file`（PDF）、`course_id`、可选 `chapter_id` 和可选 `create_copy`。空章节表示课程直属。新界面必须选择课程；为兼容旧调用，省略 `course_id` 时使用固定系统“未分类”，不按名称查找或创建普通课程。提供归属时，课程必须存在、章节必须属于该课程，否则 400；校验失败清理临时文件和本次原文件。重复内容默认返回已有课件。传入 `create_copy=true` 后，新副本使用独立课件 ID、页面 ID、原始文件和笔记，文件名追加目标组内可用的「副本 N」后缀。导入或创建副本成功时追加到目标组末尾并递增目录版本。
 
 - 文件名须以 `.pdf` 结尾（不区分大小写）；实际内容须为可读取的 PDF。
 - 允许空密码即可读取的权限保护 PDF，拒绝需要输入打开密码、损坏及零页 PDF；请求体上限为 100 MiB（界面文案为 100 MB，multipart 开销也计入后端请求上限）。
@@ -137,7 +138,7 @@ PyCharm 仅保留共享配置 [`run`](../.run/run.run.xml)，使用项目 Node.j
 {"id": "<existing_material_id>", "filename": "原课件.pdf", "page_count": 3, "duplicate": true, "location": {"course_name": "数据结构", "chapter_name": "第一章"}}
 ```
 
-数据库唯一指纹索引防止重复创建，同一后端进程内数据 API 串行处理。旧数据库升级时读取已有原文件回填指纹；对已有相同内容只给一条记录建立指纹入口，其余历史重复条目保留原 ID、文件及笔记，不做破坏性合并。缺失原文件的旧记录不参与指纹回填。
+数据库使用 SHA-256 指纹索引匹配内容，课件 ID 标识每个条目。上传由同一后端进程内的锁串行处理。迁移 `0008` 为旧条目中可读取的原文件补算缺失指纹。
 
 主要错误：400（缺少文件、类型不符、损坏、需要打开密码、零页）、413（请求过大）、500（文件或数据库操作异常）。
 
@@ -174,11 +175,19 @@ PyCharm 仅保留共享配置 [`run`](../.run/run.run.xml)，使用项目 Node.j
 
 显示版本独立于笔记、总结、问答及目录版本，不改变 PDF、页码、页面 ID 或笔记。GET 页列表与完整页面对象返回 `display`、`settings_version`，不再返回 category。迁移 `0007` 移除分类列，将旧 hidden 改为 normal 并递增其显示版本，已有 collapsed 保留。
 
+### GET /api/materials/duplicates
+
+`check_duplicate` 接受查询参数 `sha256`，须为 64 位小写十六进制。匹配时返回 200，响应与上传查重命中的对象一致，包含已有课件、`duplicate: true` 和 `location`。无匹配时返回 200 和 JSON `null`。参数不合法返回 400。该查询只读取索引，正式上传时仍会重新查重。
+
 ### GET /api/materials/{material_id}/file
 
 路径参数：`material_id`。无需请求体。
 
-返回 PDF 二进制，类型为 `application/pdf`；完整读取通常为 200，支持条件请求和 HTTP Range，范围读取可返回 206。课件不存在时返回 404；文件读取异常按错误处理逻辑响应。
+返回 PDF 二进制，类型为 `application/pdf`。完整读取通常为 200，支持条件请求和 HTTP Range，范围读取可返回 206。课件不存在时返回 404。原文件丢失、读取失败或头部不是 PDF 时返回 410，客户端提示重新导入。
+
+### PUT /api/materials/{material_id}/file
+
+`replace_original` 接受表单字段 `file`。成功返回 200 和 `{"restored": true}`，页面 ID 与笔记保留。已知指纹或页数不匹配返回 409。旧记录缺少指纹时验证 PDF 与页数，并为补回的文件写入指纹。文件不合法返回 400，课件不存在返回 404。
 
 ### PUT /api/pages/{page_id}/note
 
@@ -200,7 +209,7 @@ PyCharm 仅保留共享配置 [`run`](../.run/run.run.xml)，使用项目 Node.j
 
 ```json
 {
-  "error": "另一窗口已修改此页。你的内容仍保留，请复制备份后重新加载。",
+  "error": "另一窗口已修改笔记，请处理版本冲突。",
   "current": {"id": "<page_id>", "number": 1, "display": "normal", "settings_version": 0, "note": "服务器已有笔记", "version": 1, "summary": "", "summary_version": 0, "qa": []}
 }
 ```
@@ -237,6 +246,10 @@ PyCharm 仅保留共享配置 [`run`](../.run/run.run.xml)，使用项目 Node.j
 
 400：ID、参数或长度非法；404：页面不存在、问答不属于该页、非零版本对应的问答不存在；409：版本冲突或条目已删除，返回 `error` 和 `current`（结构同成功对象，可能 `deleted: true`）；500：服务异常。冲突不修改数据。清空后的旧页面请求返回 404，不创建记录。
 
+### 稀疏笔记
+
+迁移 `0008` 将数据库中的笔记和总结字段命名为 `personal_note` 和 `ai_summary`，其版本迁移到 `pages` 的 `personal_note_version` 和 `ai_summary_version`。两项内容都为空时删除 `page_notes` 行，版本仍可用于拒绝过期写入。HTTP 响应继续使用 `note`、`summary`、`version` 和 `summary_version`。
+
 ### POST /api/reset
 
 请求体必须为带明确确认值的 JSON：
@@ -255,7 +268,16 @@ PyCharm 仅保留共享配置 [`run`](../.run/run.run.xml)，使用项目 Node.j
 - 切换文件中途失败时恢复已移动的原数据库／目录并返回 500；成功时数据库仅保留固定系统“未分类”与初始化目录版本，以及空的 `materials/`、`tmp/`。如清理旧存储失败，接口仍返回 500 并记录异常，不提示清空成功。
 - 不删除数据目录内的无关文件，不操作上传来源位置（例如下载目录）的原始文件。
 - 通过后端进程内锁与其他数据 API 串行，等待先前上传／保存结束再清空；旧页面 ID 此后无法保存，必须重新导入。
-- 该操作不可撤销。缺少或错误确认值返回 400；存储操作失败返回 500。普通 GET 不会触发清空。
+- 可传入布尔值 `backup: true`。后端先在 `backups/{backup_id}/` 下创建一致的 SQLite 快照和原文件副本，完成后再清空。成功响应额外包含 `backup_id`。确认值或参数类型错误返回 400，存储失败返回 500。
+
+### 备份列表与恢复
+
+| 方法 | 路径 | 处理函数 | 参数和结果 |
+|---|---|---|---|
+| GET | `/api/backups` | `list_backups` | 200，按时间倒序返回可恢复的备份 ID 数组 |
+| POST | `/api/backups/{backup_id}/restore` | `restore_backup` | JSON `{"confirmation": "RESTORE_BACKUP"}`。200 返回 `{"directory": ...}`。确认错误为 400，备份不存在或不完整为 404，校验、迁移或存储失败为 500 |
+
+恢复在临时目录中校验和迁移备份，再切换数据库与原始文件目录。备份目录保留，恢复后使用所选快照的课件、页面和笔记。
 
 ## 页面与静态资源路由
 

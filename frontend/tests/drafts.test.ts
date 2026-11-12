@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import { DraftStore } from './drafts'
-import type { Page } from './api'
+import { DraftStore } from '../src/drafts'
+import type { Page } from '../src/api'
 const page: Page = { id: 'p', number: 1, note: '', version: 0, summary: '', summary_version: 0, qa: [] }
 let stores: DraftStore[]
 const create = () => { const store = new DraftStore(); stores.push(store); store.bind(page); return store }

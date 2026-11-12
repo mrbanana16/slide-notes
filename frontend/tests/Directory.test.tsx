@@ -1,9 +1,9 @@
 import { chooseOption, directoryAction } from './testInteractions'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import { Directory } from './Directory'
-import type { Directory as DirectoryData } from './api'
-import { treeDropOrder } from './directoryTree'
+import { Directory } from '../src/Directory'
+import type { Directory as DirectoryData } from '../src/api'
+import { treeDropOrder } from '../src/directoryTree'
 
 const data: DirectoryData = {
   revision: 7,

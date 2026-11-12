@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest'
-import type { Page } from './api'
-import { closestPage } from './reading'
+import type { Page } from '../src/api'
+import { closestPage } from '../src/reading'
 
 it('locates original pages without skipping collapsed pages or renumbering', () => {
   const pages = [{ id: 'a', number: 1, display: 'collapsed' }, { id: 'b', number: 2, display: 'normal' }] as Page[]

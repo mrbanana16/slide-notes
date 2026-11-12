@@ -35,6 +35,30 @@ def test_summary_note_qa_independent_versions_and_restart(app):
         restarted.extensions['engine'].dispose()
 
 
+def test_empty_pages_have_no_note_row_and_clearing_preserves_versions(app):
+    from sqlalchemy import text
+
+    client = app.test_client()
+    material = upload(client).get_json()
+    page = client.get(f'/api/materials/{material["id"]}/pages').get_json()[0]
+    base = f'/api/pages/{page["id"]}'
+
+    def count_notes():
+        with app.extensions['engine'].connect() as connection:
+            return connection.scalar(text('SELECT count(*) FROM page_notes'))
+
+    assert count_notes() == 0
+    assert client.put(base + '/note', json={'note': 'note', 'version': 0}).status_code == 200
+    assert count_notes() == 1
+    assert client.put(base + '/summary', json={'summary': 'summary', 'version': 0}).status_code == 200
+    assert client.put(base + '/note', json={'note': '', 'version': 1}).status_code == 200
+    assert count_notes() == 1
+    assert client.put(base + '/summary', json={'summary': '', 'version': 1}).status_code == 200
+    assert count_notes() == 0
+    conflict = client.put(base + '/note', json={'note': 'stale', 'version': 1})
+    assert conflict.status_code == 409 and conflict.get_json()['current']['version'] == 2
+
+
 def test_qa_conflict_delete_tombstone_and_page_binding(app):
     client = app.test_client()
     material, page = first_page(client)

@@ -1,7 +1,7 @@
 import { Button, Empty, InputNumber, Segmented, Select, Space, Tooltip } from 'antd'
 import { DownOutlined, LeftOutlined, RightOutlined } from '@ant-design/icons'
 import { createPortal } from 'react-dom'
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type RefObject } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type RefObject } from 'react'
 import type { PDFDocumentProxy } from 'pdfjs-dist'
 import { api, ApiError, type Page, type PageSettings } from './api'
 import { DraftStore } from './drafts'
@@ -53,7 +53,7 @@ export function Reader({ materialId, pages, pdf, store, mode, onMode, onSettings
   const active = shown.find(page => page.number === current) ?? closestPage(shown, current)
   const anchor = useRef<{ number: number; offset: number } | null>(null)
   const rows = useRef(new Map<string, HTMLElement>())
-  const pageIds = shown.map(page => page.id).join(',')
+  const pageIds = useMemo(() => shown.map(page => page.id).join(','), [shown])
   const [nearby, setNearby] = useState<Set<string>>(() => new Set())
   const noteLayoutAnchor = useRef<{ number: number; offset: number; scrollTop: number } | null>(null)
   useEffect(() => {
@@ -213,7 +213,7 @@ export function Reader({ materialId, pages, pdf, store, mode, onMode, onSettings
         </Tooltip>
         <strong>第 {page.number} 页</strong>
       </div>
-      <div className="pageReveal" data-collapsed={page.display === 'collapsed'}><div inert={page.display === 'collapsed'} className={`pageColumns ${single ? 'singlePage' : ''}`} style={{ '--pdf-width': split.value + '%' } as CSSProperties}><PdfPage pdf={pdf} number={page.number} zoom={single ? zoom : 1} fit={single && fit} /><Divider label={`第 ${page.number} 页课件宽度`} size={split} percent /><ReaderNotes key={mode === 'review' ? 'review' : 'edit'} page={page} store={store} review={mode === 'review'}
+      <div className="pageReveal" data-collapsed={page.display === 'collapsed'}><div inert={page.display === 'collapsed'} className={`pageColumns ${single ? 'singlePage' : ''}`} style={{ '--pdf-width': split.value + '%' } as CSSProperties}><PdfPage pdf={pdf} number={page.number} zoom={single ? zoom : 1} fit={single && fit} nearby={page.display !== 'collapsed' && (single || nearby.has(page.id) || page.id === active?.id)} /><Divider label={`第 ${page.number} 页课件宽度`} size={split} percent /><ReaderNotes key={mode === 'review' ? 'review' : 'edit'} page={page} store={store} review={mode === 'review'}
         nearby={single || typeof IntersectionObserver === 'undefined' || nearby.has(page.id) || page.id === active?.id} /></div></div>
     </article>)}
   </>

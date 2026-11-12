@@ -1,4 +1,6 @@
 from concurrent.futures import ThreadPoolExecutor
+from hashlib import sha256
+from io import BytesIO
 from pathlib import Path
 import sqlite3
 
@@ -45,6 +47,82 @@ def test_concurrent_duplicate_uploads_create_one_material(app):
     assert len(list((app.config['DATA_DIR'] / 'materials').iterdir())) == 1
 
 
+def test_duplicate_lookup_returns_location_without_importing(app):
+    client = app.test_client()
+    digest = sha256(pdf_bytes()).hexdigest()
+    url = f'/api/materials/duplicates?sha256={digest}'
+    assert client.get(url).get_json() is None
+    assert client.get('/api/materials/duplicates?sha256=bad').status_code == 400
+    original = upload(client).get_json()
+    directory = client.get('/api/directory').get_json()
+    match = client.get(url)
+    assert match.get_json() == {**original, 'duplicate': True, 'location': {'course_name': '未分类', 'chapter_name': None}}
+    assert match.cache_control.no_store
+    assert client.get('/api/directory').get_json() == directory
+
+
+def test_explicit_copies_have_distinct_names_pages_and_notes(app):
+    client = app.test_client()
+    original = upload(client, filename='lecture.pdf').get_json()
+    original_page = client.get(f'/api/materials/{original["id"]}/pages').get_json()[0]
+    client.put(f'/api/pages/{original_page["id"]}/note', json={'note': 'original only', 'version': 0})
+    copies = []
+    for number in (1, 2):
+        response = client.post('/api/materials', data={
+            'file': (BytesIO(pdf_bytes()), 'lecture.pdf'), 'create_copy': 'true',
+        })
+        assert response.status_code == 201
+        copy = response.get_json()
+        assert copy['filename'] == f'lecture（副本 {number}）.pdf'
+        page = client.get(f'/api/materials/{copy["id"]}/pages').get_json()[0]
+        assert page['id'] != original_page['id'] and page['note'] == ''
+        copies.append(copy)
+    response = client.delete(f'/api/materials/{original["id"]}', json={
+        'revision': client.get('/api/directory').get_json()['revision'], 'confirmation': original['id'],
+    })
+    assert response.status_code == 200
+    assert upload(client).get_json()['id'] in {copy['id'] for copy in copies}
+
+
+def test_reset_backup_restores_database_and_original_pdf(app):
+    client = app.test_client()
+    original = upload(client).get_json()
+    url = f'/api/materials/{original["id"]}'
+    pages = client.get(url + '/pages').get_json()
+    client.put(f'/api/pages/{pages[0]["id"]}/note', json={'note': 'backed up', 'version': 0})
+    result = client.post('/api/reset', json={'confirmation': 'DELETE_ALL_DATA', 'backup': True})
+    assert result.status_code == 200
+    backup_id = result.get_json()['backup_id']
+    assert client.get('/api/backups').get_json() == [backup_id]
+    assert client.get('/api/materials').get_json() == []
+    assert upload(client, filename='replacement.pdf').status_code == 201
+    restore_url = f'/api/backups/{backup_id}/restore'
+    assert client.post(restore_url, json={}).status_code == 400
+    assert client.post(restore_url, json={'confirmation': 'RESTORE_BACKUP'}).status_code == 200
+    assert client.get('/api/materials').get_json() == [original]
+    assert client.get(url + '/pages').get_json()[0]['note'] == 'backed up'
+    with client.get(url + '/file') as response:
+        assert response.data == pdf_bytes()
+    assert client.get('/api/backups').get_json() == [backup_id]
+
+
+def test_missing_original_can_be_restored_without_recreating_pages(app):
+    client = app.test_client()
+    material = upload(client).get_json()
+    base = f'/api/materials/{material["id"]}'
+    pages = client.get(base + '/pages').get_json()
+    original = app.config['DATA_DIR'] / 'materials' / material['id'] / 'original.pdf'
+    original.unlink()
+    assert client.get(base + '/file').status_code == 410
+    original.write_bytes(b'unreadable PDF')
+    assert client.get(base + '/file').status_code == 410
+    assert client.put(base + '/file', data={'file': (BytesIO(pdf_bytes(pages=2)), 'wrong.pdf')}).status_code == 409
+    assert client.put(base + '/file', data={'file': (BytesIO(pdf_bytes()), 'original.pdf')}).status_code == 200
+    assert client.get(base + '/pages').get_json() == pages
+    with client.get(base + '/file') as response:
+        assert response.data == pdf_bytes()
+
+
 def test_reset_rebuilds_database_removes_files_and_can_import_again(app):
     client = app.test_client()
     material = upload(client).get_json()
@@ -68,7 +146,7 @@ def test_reset_rebuilds_database_removes_files_and_can_import_again(app):
     with app.extensions['engine'].connect() as connection:
         for table in ('materials', 'pages', 'page_notes', 'qa_entries'):
             assert connection.scalar(text(f'SELECT count(*) FROM {table}')) == 0
-        assert connection.scalar(text('SELECT version_num FROM alembic_version')) == '0007'
+        assert connection.scalar(text('SELECT version_num FROM alembic_version')) == '0008'
     restarted = create_app(data)
     try:
         assert restarted.test_client().get('/api/materials').get_json() == []

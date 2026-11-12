@@ -1,7 +1,7 @@
 import { PlusOutlined, EllipsisOutlined, RightOutlined, EditOutlined, ArrowUpOutlined, ArrowDownOutlined, DeleteOutlined, FolderOpenOutlined, FolderOutlined, FilePdfOutlined } from '@ant-design/icons'
 import { Button, Dropdown, Input, Modal, Select, Tooltip, Tree, type TreeProps } from 'antd'
 import { overlayContainer, useMediaPreference } from './theme'
-import { useState } from 'react'
+import { useRef, useState, type DragEvent } from 'react'
 import type { Directory as DirectoryData, Material } from './api'
 import { treeDropOrder } from './directoryTree'
 import { TransferDialog } from './TransferDialog'
@@ -22,6 +22,8 @@ export function Directory({ data: savedData, selected, busy: externalBusy, onSel
   const [optimistic, setOptimistic] = useState<DirectoryData | null>(null)
   const [saving, setSaving] = useState(false)
   const [transfer, setTransfer] = useState<Order | null>(null)
+  const draggedMaterial = useRef<string | null>(null)
+  const [dropHint, setDropHint] = useState<{ id: string; position: number } | null>(null)
   const data = optimistic ?? savedData
   const busy = externalBusy || saving
   async function saveOrder(next: Order) {
@@ -113,13 +115,36 @@ export function Directory({ data: savedData, selected, busy: externalBusy, onSel
     const next = treeDropOrder(data, String(info.dragNode.key), String(info.node.key), position)
     if (next) submitOrder(next)
   }
+  function materialDrop(event: DragEvent<HTMLElement>, commit: boolean) {
+    const active = draggedMaterial.current
+    if (!active) return
+    event.stopPropagation()
+    const treeNode = (event.target as HTMLElement).closest('.ant-tree-treenode')
+    const row = treeNode?.querySelector<HTMLElement>('[data-directory-node]')
+    const id = row?.dataset.directoryNode
+    const bounds = treeNode?.getBoundingClientRect()
+    const position = bounds && row?.dataset.kind === 'materials' ? (event.clientY < bounds.top + bounds.height / 2 ? -1 : 1) : 0
+    const next = !busy && !readOnly && id ? treeDropOrder(data, active, id, position) : null
+    if (next) {
+      event.preventDefault()
+      event.dataTransfer.dropEffect = 'move'
+    }
+    if (commit) {
+      draggedMaterial.current = null
+      setDropHint(null)
+      if (next) submitOrder(next)
+    } else {
+      setDropHint(old => next && id ? old?.id === id && old.position === position ? old : { id, position } : null)
+    }
+  }
   const titleRender = (node: DirectoryNode) => {
     const id = String(node.key)
     const item = data.materials.find(item => item.id === id)
     if (!item && !data.courses.some(entry => entry.id === id) && !data.chapters.some(entry => entry.id === id)) return <span className="treeText">{node.title}</span>
     const ids = node.kind === 'courses' ? order.course_ids.filter(id => !data.courses.find(course => course.id === id)?.is_system)
       : node.kind === 'chapters' ? order.chapter_ids[node.course] : order.material_ids[item!.chapter_id ?? item!.course_id]
-    return <div className="treeRow">
+    return <div className="treeRow" data-directory-node={id} data-kind={node.kind}
+      data-drop={dropHint?.id === id ? dropHint.position : undefined}>
       <span className={item ? 'treeName material' : 'treeName'} title={item ? '' : String(node.title)} aria-label={String(node.title)} aria-current={selected === id ? 'page' : undefined}>
         {item ? <FilePdfOutlined aria-hidden="true" /> : closed.has(id) ? <FolderOutlined aria-hidden="true" /> : <FolderOpenOutlined aria-hidden="true" />}
         {item ? <><Tooltip title={item.filename}><span className="treeText"><strong>{item.filename}</strong></span></Tooltip><small>{item.page_count} 页</small></>
@@ -149,7 +174,10 @@ export function Directory({ data: savedData, selected, busy: externalBusy, onSel
       <Input placeholder={dialog?.title === '创建课程' ? '课程名称' : dialog?.title === '添加章节' ? '章节名称' : '新名称'} aria-label="名称" maxLength={200} value={text} disabled={busy} onChange={e => setText(e.target.value)} onPressEnter={e => { if (!e.nativeEvent.isComposing) void submitName() }} />
       {invalid && <p role="alert">保存失败，请检查名称或重新加载目录。</p>}
     </Modal>
-    <nav aria-label="课程结构"><Tree<DirectoryNode> blockNode className="directoryTree" treeData={treeData} titleRender={titleRender}
+    <nav aria-label="课程结构" onDragOverCapture={event => materialDrop(event, false)} onDropCapture={event => materialDrop(event, true)}
+      onDragLeave={event => { if (!(event.relatedTarget instanceof Node) || !event.currentTarget.contains(event.relatedTarget)) setDropHint(null) }}
+      onDragEndCapture={() => { draggedMaterial.current = null; setDropHint(null) }}>
+      <Tree<DirectoryNode> blockNode className="directoryTree" treeData={treeData} titleRender={titleRender}
       motion={reducedMotion ? { motionEnter: false, motionLeave: false, motionAppear: false } : undefined}
       selectedKeys={selected ? [selected] : []} expandedKeys={expandedKeys} autoExpandParent={false}
       onExpand={keys => setClosed(new Set([...data.courses, ...data.chapters].filter(item => !keys.includes(item.id)).map(item => item.id)))}
@@ -161,7 +189,18 @@ export function Directory({ data: savedData, selected, busy: externalBusy, onSel
         else toggle(String(info.node.key))
       }}
       draggable={readOnly || busy ? false : { icon: false, nodeDraggable: node => !data.courses.find(item => item.id === node.key)?.is_system }}
-      allowDrop={({ dragNode, dropNode, dropPosition }) => !busy && !readOnly && !!treeDropOrder(data, String(dragNode.key), String(dropNode.key), dropPosition)}
+      onDragStart={({ event, node }) => {
+        if (node.kind !== 'materials') return
+        draggedMaterial.current = String(node.key)
+        if (!event.dataTransfer.setDragImage) return
+        const preview = document.createElement('span')
+        preview.className = 'materialDragPreview'
+        preview.textContent = String(node.title)
+        document.body.append(preview)
+        event.dataTransfer.setDragImage(preview, 10, 12)
+        requestAnimationFrame(() => preview.remove())
+      }}
+      allowDrop={({ dragNode, dropNode, dropPosition }) => dragNode.kind !== 'materials' && !busy && !readOnly && !!treeDropOrder(data, String(dragNode.key), String(dropNode.key), dropPosition)}
       onDragEnter={info => setClosed(new Set([...data.courses, ...data.chapters].filter(item => !info.expandedKeys.includes(item.id)).map(item => item.id)))}
       onDrop={onDrop} /></nav>
     {transfer && <TransferDialog data={savedData} order={transfer} onCancel={() => setTransfer(null)} onConfirm={() => { const next = transfer; setTransfer(null); void saveOrder(next) }} />}

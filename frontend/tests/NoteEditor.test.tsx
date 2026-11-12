@@ -1,9 +1,9 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { useEffect, useState } from 'react'
-import { NoteEditor, MarkdownPreview } from './NoteEditor'
-import { DraftStore } from './drafts'
-import type { Page } from './api'
+import { NoteEditor, MarkdownPreview } from '../src/NoteEditor'
+import { DraftStore } from '../src/drafts'
+import type { Page } from '../src/api'
 import { readFileSync } from 'node:fs'
 
 const styles = readFileSync('src/styles.css', 'utf8')

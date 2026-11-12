@@ -86,16 +86,21 @@ def test_wrong_material_duplicate_ids_and_invalid_versions_are_atomic(app):
 
 
 def test_upgrade_restores_hidden_pages_and_retains_collapsed_pages(app):
+    from pathlib import Path
+    from alembic import command
+    from alembic.config import Config
     from sqlalchemy import text
 
     client = app.test_client()
     material, url, pages = setup_pages(client)
     client.put(f'/api/pages/{pages[0]["id"]}/note', json={'note': 'legacy note', 'version': 0})
+    config = Config()
+    config.set_main_option('script_location', str(Path(__file__).resolve().parents[1] / 'migrations'))
     with app.extensions['engine'].begin() as connection:
-        connection.execute(text("ALTER TABLE pages ADD COLUMN category TEXT NOT NULL DEFAULT '正文'"))
+        config.attributes['connection'] = connection
+        command.downgrade(config, '0006')
         connection.execute(text("UPDATE pages SET display='hidden' WHERE id=:id"), {'id': pages[0]['id']})
         connection.execute(text("UPDATE pages SET display='collapsed' WHERE id=:id"), {'id': pages[1]['id']})
-        connection.execute(text("UPDATE alembic_version SET version_num='0006'"))
     app.extensions['engine'].dispose()
     restarted = create_app(app.config['DATA_DIR'])
     try:

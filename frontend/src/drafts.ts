@@ -52,19 +52,25 @@ export class DraftStore {
     } catch { this.storageError = '本地草稿写入失败（空间不足或存储不可用），请保持页面打开并保存或复制内容。' }
   }
   bind(page: Page, materialId?: string) {
-    if (materialId) this.locations.set(page.id, { materialId, number: page.number })
-    const ids = new Set((page.qa ?? []).map(qa => qa.id))
+    this.bindPages([page], materialId)
+  }
+  bindPages(pages: Page[], materialId?: string) {
+    const byId = new Map(pages.map(page => [page.id, page]))
     for (const entry of Object.values(this.entries)) {
-      if (entry.pageId === page.id && entry.kind === 'qa' && !ids.has(entry.id) && !entry.pending && !this.dirty(entry)) delete this.entries[entry.url]
+      const page = byId.get(entry.pageId)
+      if (page && entry.kind === 'qa' && !page.qa?.some(qa => qa.id === entry.id) && !entry.pending && !this.dirty(entry)) delete this.entries[entry.url]
     }
-    this.add(page.id, 'note', page.id, { note: page.note }, page.version)
-    this.add(page.id, 'summary', page.id, { summary: page.summary ?? '' }, page.summary_version ?? 0)
-    for (const qa of page.qa ?? []) this.add(page.id, 'qa', qa.id, this.qaContent(qa), qa.version)
+    for (const page of pages) {
+      if (materialId) this.locations.set(page.id, { materialId, number: page.number })
+      this.add(page.id, 'note', page.id, { note: page.note }, page.version)
+      this.add(page.id, 'summary', page.id, { summary: page.summary ?? '' }, page.summary_version ?? 0)
+      for (const qa of page.qa ?? []) this.add(page.id, 'qa', qa.id, this.qaContent(qa), qa.version)
+    }
     try {
       for (const key of Object.keys(localStorage).filter(key => key.startsWith(this.namespace))) {
         const saved = JSON.parse(localStorage.getItem(key) ?? 'null')
-        if (saved?.pageId === page.id && saved.kind === 'qa' && !this.entries[key.slice(this.namespace.length)]) {
-          this.add(page.id, 'qa', saved.id, { question: '', answer: '', deleted: false }, 0, saved.version > 0)
+        if (saved?.kind === 'qa' && byId.has(saved.pageId) && !this.entries[key.slice(this.namespace.length)]) {
+          this.add(saved.pageId, 'qa', saved.id, { question: '', answer: '', deleted: false }, 0, saved.version > 0)
         }
       }
     } catch { this.storageError = '无法读取部分本地草稿，请检查浏览器存储。' }
@@ -183,6 +189,17 @@ export class DraftStore {
     this.emit()
   }
   pause(value: boolean) { this.paused = value; for (const entry of Object.values(this.entries)) this.schedule(entry); this.emit() }
+  waitForPending() {
+    const pending = () => Object.values(this.entries).some(entry => entry.pending)
+    if (!pending()) return Promise.resolve()
+    return new Promise<void>(resolve => {
+      const unsubscribe = this.subscribe(() => {
+        if (pending()) return
+        unsubscribe()
+        resolve()
+      })
+    })
+  }
   clear() {
     for (const timer of this.timers.values()) clearTimeout(timer)
     this.timers.clear(); this.entries = {}; this.history = []; this.locations.clear()

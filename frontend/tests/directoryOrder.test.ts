@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest'
-import { directoryOrder, movedOrder, projectOrder } from './directoryOrder'
-import type { Directory } from './api'
+import { directoryOrder, movedOrder, projectOrder } from '../src/directoryOrder'
+import type { Directory } from '../src/api'
 
 const data: Directory = {
   revision: 7,

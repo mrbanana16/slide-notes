@@ -6,6 +6,15 @@
 
 需要 Python 3.11+ 和 Node.js 22.13+。在项目根目录创建虚拟环境并安装后端依赖。
 
+在 Windows 上，使用 PowerShell 7 执行以下命令。
+
+```powershell
+python -m venv backend/.venv
+.\backend\.venv\Scripts\python.exe -m pip install -r backend/requirements.lock
+```
+
+在 macOS 上，执行以下命令。
+
 ```sh
 python3 -m venv backend/.venv
 backend/.venv/bin/python -m pip install -r backend/requirements.lock
@@ -13,13 +22,21 @@ backend/.venv/bin/python -m pip install -r backend/requirements.lock
 
 ### 使用 PyCharm
 
-1. 打开项目根目录，将共享 `run` 配置的 Python 解释器关联到 `backend/.venv/bin/python`，将项目的 JavaScript Runtime 设置为 Node.js 22.13+。
+1. 打开项目根目录，将共享 `run` 配置的 Python 解释器关联到虚拟环境。Windows 使用 `backend/.venv/Scripts/python.exe`，macOS 使用 `backend/.venv/bin/python`。将项目的 JavaScript Runtime 设置为 Node.js 22.13+。
 2. 选择 `run` 并启动。配置会依次安装前端依赖、构建页面并启动本机服务。
-3. 服务启动后会打开系统默认浏览器。也可以手动访问 <http://127.0.0.1:5001/>。使用 IDE 的 Stop 按钮停止服务。
+3. 服务启动后会打开系统默认浏览器。也可以手动访问 <http://127.0.0.1:5001/>。使用 IDE 的 Stop 按钮停止服务。已有最新前端构建时，可使用共享 `run_backend` 配置直接启动。
 
 ### 使用终端
 
 从项目根目录依次执行以下命令。
+
+```powershell
+npm --prefix frontend ci
+npm --prefix frontend run build
+.\backend\.venv\Scripts\python.exe backend/run.py
+```
+
+macOS 使用以下命令。
 
 ```sh
 npm --prefix frontend ci
@@ -34,10 +51,12 @@ backend/.venv/bin/python backend/run.py
 ## 导入和组织课件
 
 1. 点击「导入 PDF」或把文件拖进工作区。
-2. 选择课程、可选章节及文件，再点「确认导入」。也可从下拉菜单末尾创建课程或章节。
+2. 选择或拖入文件后，弹窗立即检查 PDF 是否可读取、是否加密、页数及是否已有相同课件。文件信息行显示页数；无法读取页数时显示「- 页」，空白 PDF 显示「0 页」。检查结果会在确认导入前显示。选好课程和可选章节后，可确认导入新课件或创建副本。也可从下拉菜单末尾创建课程或章节。
 3. 无需归档时选择固定的「未分类」。课程直属的课件选择「课程直属（无章节）」。
 
-上传上限为 100 MB，支持能直接打开或可用空密码读取的 PDF。需要打开密码的文件须先解除保护。系统保留原始文件，按内容识别重复课件。出现「课件已存在」时，可以核对其位置并选择「打开已有课件」。同名但内容不同的文件可以独立导入。
+上传上限为 100 MB，支持能直接打开或可用空密码读取的 PDF。需要打开密码的文件须先解除保护。出现「课件已存在」时，可以核对位置、打开已有课件，或在所选目录创建带「副本」编号的独立课件。副本拥有独立笔记。同名但内容不同的文件可以独立导入。
+
+原始 PDF 丢失或无法读取时，从顶栏点击「重新导入原文件」并选择原始 PDF，即可恢复原课件的阅读。恢复后继续使用原课件和笔记。
 
 目录「＋」用于创建课程。课程的「⋯」菜单可以添加章节，课程、章节和课件都可以从各自的菜单重命名。目录标题最多两行，把鼠标移到目录或顶栏的课件名上即可查看完整文件名。
 
@@ -72,11 +91,13 @@ backend/.venv/bin/python backend/run.py
 
 ## 系统设置与数据
 
-从目录底部打开「系统设置」。可选浅色、深色或跟随系统，PDF 保持原色。面板可以检测后端运行状态，并在底部显示构建时间、启动时间和版本号。
+从目录底部打开「系统设置」。可选浅色、深色或跟随系统，PDF 保持原色。面板可以检测后端运行状态，并在底部显示构建时间、启动时间和三位版本号，例如 `v1.0.0`。
 
-默认数据位于 `backend/data/`，包含数据库 `app.sqlite3`、课件目录 `materials/` 和临时目录 `tmp/`。可设置环境变量 `SLIDE_NOTES_DATA` 指定其他绝对路径。备份时先停止服务，再复制整个数据目录。浏览器里尚未保存的草稿不在该备份内。
+默认数据位于 `backend/data/`，包含数据库 `app.sqlite3`、课件目录 `materials/` 和临时目录 `tmp/`。可设置环境变量 `SLIDE_NOTES_DATA` 指定其他绝对路径。手动复制整个数据目录前请停止服务。
 
-如需清空，在整理模式打开「系统设置 → 清空全部数据」，核对提示后确认。该操作会永久删除应用内的课程、章节、课件及笔记，并清理浏览器中的应用草稿，保留空的「未分类」。完成后请刷新其他已打开的标签页。
+在整理模式打开「系统设置 → 清空全部数据」。勾选「清空前备份数据库和原始 PDF」后确认，备份会保存在数据目录的 `backups/` 下。清空后保留空的「未分类」，之前的备份仍可使用。备份只包含已保存的数据。
+
+在「系统设置 → 从备份恢复」选择备份并确认，所选数据库和原始 PDF 会替换当前数据。清空和恢复都会清除浏览器中的应用草稿。操作前请关闭其他已打开的标签页。
 
 ## 常见问题
 
