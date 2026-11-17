@@ -7,9 +7,9 @@ const data: Directory = {
   courses: [{ id: 'c1', name: '课程一', position: 0 }, { id: 'c2', name: '课程二', position: 1 }],
   chapters: [{ id: 'ch1', name: '第一章', course_id: 'c1', position: 0 }, { id: 'ch2', name: '第二章', course_id: 'c1', position: 1 }],
   materials: [
-    { id: 'm1', filename: '一.pdf', course_id: 'c1', chapter_id: null, position: 0, page_count: 1 },
-    { id: 'm2', filename: '二.pdf', course_id: 'c1', chapter_id: null, position: 1, page_count: 1 },
-    { id: 'm3', filename: '三.pdf', course_id: 'c1', chapter_id: 'ch1', position: 0, page_count: 1 },
+    { id: 'm1', title: '一.pdf', course_id: 'c1', chapter_id: null, position: 0, page_count: 1 },
+    { id: 'm2', title: '二.pdf', course_id: 'c1', chapter_id: null, position: 1, page_count: 1 },
+    { id: 'm3', title: '三.pdf', course_id: 'c1', chapter_id: 'ch1', position: 0, page_count: 1 },
   ],
 }
 it('reorders in both directions without mutating the server snapshot', () => {

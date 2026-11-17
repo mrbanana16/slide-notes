@@ -52,6 +52,6 @@ export function projectOrder(data: Directory, order: Order): Directory {
   const materials = Object.entries(order.material_ids).flatMap(([parent, ids]) => ids.map((id, position) => ({ ...data.materials.find(m => m.id === id)!, position, course_id: chapters.find(c => c.id === parent)?.course_id ?? parent, chapter_id: chapters.some(c => c.id === parent) ? parent : null })))
   return { ...data, courses: order.course_ids.map((id, position) => ({ ...data.courses.find(c => c.id === id)!, position })), chapters, materials }
 }
-export function materialPath(data: Directory, material: { course_id: string; chapter_id: string | null; filename?: string }) {
-  return [data.courses.find(c => c.id === material.course_id)?.name ?? '未知课程', material.chapter_id ? data.chapters.find(c => c.id === material.chapter_id)?.name : null, material.filename].filter(Boolean).join(' / ')
+export function materialPath(data: Directory, material: { course_id: string; chapter_id: string | null; title?: string }) {
+  return [data.courses.find(c => c.id === material.course_id)?.name ?? '未知课程', material.chapter_id ? data.chapters.find(c => c.id === material.chapter_id)?.name : null, material.title].filter(Boolean).join(' / ')
 }

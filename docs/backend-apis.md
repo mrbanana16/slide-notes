@@ -17,6 +17,7 @@
 | [models.py](../backend/slide_notes/models.py) | Course、Chapter、DirectoryState、Material、Page、PageNote、QAEntry 数据模型 |
 | [storage.py](../backend/slide_notes/storage.py) | 数据库迁移初始化、SHA-256 计算、全量备份、清空与恢复时的数据库准备、文件切换及回滚 |
 | [0002_material_fingerprint.py](../backend/migrations/versions/0002_material_fingerprint.py) | 文件指纹字段及唯一索引；为旧课件回填指纹，保留已有重复课件与笔记 |
+| [0009_material_details.py](../backend/migrations/versions/0009_material_details.py) | 将已有显示名称迁移至 `title`，新增 `original_title` 和 `imported_at`，旧课件的两项新增数据为空 |
 | [0008_sparse_notes.py](../backend/migrations/versions/0008_sparse_notes.py) | 笔记字段改名，迁移独立版本号，删除历史空笔记行，允许同一指纹有多个副本 |
 | [test_import_reset.py](../backend/tests/test_import_reset.py) | 内容去重、并发导入、旧库迁移、清空确认／重建／失败恢复及与上传串行处理测试 |
 | [0001_material_pages.py](../backend/migrations/versions/0001_material_pages.py) | 初始数据库表迁移 |
@@ -40,10 +41,11 @@
 | POST | `/api/chapters` | `create_chapter` | 目录「＋」及导入弹窗章节下拉共用；JSON `{revision, name, course_id}`；追加到课程末尾 | 201：新快照；400：名称／课程／版本非法；409：旧版本 |
 | PATCH | `/api/courses/{id}` | `rename` | JSON `{revision, name}`；系统“未分类”不能改名 | 200：新快照；400：非法参数或系统分类；404：不存在；409：旧版本 |
 | PATCH | `/api/chapters/{id}` | `rename` | JSON `{revision, name}`；不修改课程归属 | 同上 |
-| PATCH | `/api/materials/{id}` | `rename` | JSON `{revision, filename}`；仅修改显示名称，不改原文件 | 同上 |
+| PATCH | `/api/materials/{id}` | `rename` | JSON `{revision, title}`；更新文件标题 | 同上 |
 | DELETE | `/api/courses/{id}` | `delete_container` | JSON `{revision}`；仅普通空课程可删除，包括不能有空章节；系统分类永久保留 | 200：新快照；400：版本非法或系统分类保护；404：不存在；409：非空或旧版本 |
 | DELETE | `/api/chapters/{id}` | `delete_container` | JSON `{revision}`；仅空章节可删除 | 同上 |
-| GET | `/api/materials/{id}` | `material_details` | 查询删除影响；无请求体 | 200：课件字段及 `note_count`、`page_ids`；404：不存在 |
+| GET | `/api/materials/{id}` | `material_details` | 查询文件详情及删除影响；无请求体 | 200：课件字段及 `original_title`、`size_bytes`、`imported_at`、`location`、`note_count`、`note_counts`、`page_ids`；404：不存在 |
+| POST | `/api/materials/{id}/file/reveal` | `reveal_original` | JSON 空对象 `{}`。在运行后端的 macOS 或 Windows 上打开系统文件管理器并选中数据目录中的原始 PDF | 204：已调用文件管理器；400：请求体不合法；403：路径无法直接定位；404：课件不存在；410：原文件缺失；500：启动失败；501：当前系统不支持 |
 | DELETE | `/api/materials/{id}` | `delete_material` | JSON `{revision, confirmation: "课件ID"}`；删除课件及关联笔记／原文件 | 200：新快照；400：版本／确认非法；404：不存在；409：旧版本；500：文件／数据库错误 |
 | PUT | `/api/directory/order` | `order` | 完整目录顺序和归属，见下文 | 200：新快照；400：集合不完整／重复／非法类型／章节跨课程／系统分类不在首位；409：旧版本或转移确认不匹配 |
 
@@ -56,11 +58,11 @@
   "revision": 3,
   "courses": [{"id": "00000000000000000000000000000000", "name": "未分类", "position": 0, "is_system": true}, {"id": "course", "name": "数据结构", "position": 1, "is_system": false}],
   "chapters": [{"id": "chapter", "course_id": "course", "name": "第一章", "position": 0}],
-  "materials": [{"id": "material", "filename": "课件.pdf", "page_count": 3, "course_id": "course", "chapter_id": "chapter", "position": 0}]
+  "materials": [{"id": "material", "title": "课件.pdf", "page_count": 3, "course_id": "course", "chapter_id": "chapter", "position": 0}]
 }
 ```
 
-课程额外包含 `is_system` 布尔值，首项始终为固定“未分类”。课程、章节分别按 `position`／ID 升序；课件数组按 `position`／ID，使用其归属字段分组后即为组内顺序。课件在旧 GET `/api/materials`、上传及详情响应中同样新增 `course_id`、`chapter_id`、`position` 字段；下方旧材料响应示例展示基础字段，实际包含新增字段。`note_count` 为非空个人笔记数 + 非空总结数 + 未删除问答条数，问答的问题／回答合计一条；`page_ids` 用于前端清理该课件草稿。
+课程额外包含 `is_system` 布尔值，首项始终为固定“未分类”。课程、章节分别按 `position`／ID 升序；课件数组按 `position`／ID，使用其归属字段分组后即为组内顺序。课件在旧 GET `/api/materials`、上传及详情响应中同样新增 `course_id`、`chapter_id`、`position` 字段；下方旧材料响应示例展示基础字段，实际包含新增字段。`note_count` 为非空个人笔记数 + 非空总结数 + 未删除问答条数，问答的问题／回答合计一条。分项 `note_counts` 包含 `ai_summary`、`personal_note`、`qa`；`page_ids` 用于前端清理该课件草稿。详情中的 `location` 包含 `course_name` 和可空的 `chapter_name`。 `size_bytes` 为当前原始 PDF 的字节数，文件丢失时返回 `null`。新导入时保存去除路径部分的 `original_title` 和 ISO 8601 UTC 格式的 `imported_at`，旧库缺少的元数据返回 `null`。修改标题后仍保留导入元数据。
 
 排序请求示例（将课件从第一章移动为课程直属）：
 
@@ -113,13 +115,13 @@ PyCharm 共享配置 `run` 使用项目 Node.js 执行 `npm ci` 和 `npm run bui
 
 ```json
 [
-  {"id": "<material_id>", "filename": "课件.pdf", "page_count": 3}
+  {"id": "<material_id>", "title": "课件.pdf", "page_count": 3}
 ]
 ```
 
 ### POST /api/materials
 
-表单接受 `file`（PDF）、`course_id`、可选 `chapter_id` 和可选 `create_copy`。空章节表示课程直属。新界面必须选择课程；为兼容旧调用，省略 `course_id` 时使用固定系统“未分类”，不按名称查找或创建普通课程。提供归属时，课程必须存在、章节必须属于该课程，否则 400；校验失败清理临时文件和本次原文件。重复内容默认返回已有课件。传入 `create_copy=true` 后，新副本使用独立课件 ID、页面 ID、原始文件和笔记，文件名追加目标组内可用的「副本 N」后缀。导入或创建副本成功时追加到目标组末尾并递增目录版本。
+表单接受 `file`（PDF）、`course_id`、可选 `chapter_id` 和可选 `create_copy`。空章节表示课程直属。新界面必须选择课程；为兼容旧调用，省略 `course_id` 时使用固定系统“未分类”，不按名称查找或创建普通课程。提供归属时，课程必须存在、章节必须属于该课程，否则 400；校验失败清理临时文件和本次原文件。重复内容默认返回已有课件。传入 `create_copy=true` 后，新副本使用独立课件 ID、页面 ID、原始文件和笔记，标题追加目标组内可用的「副本 N」后缀，原始文件名沿用上传文件名。导入或创建副本成功时追加到目标组末尾并递增目录版本。
 
 - 文件名须以 `.pdf` 结尾（不区分大小写）；实际内容须为可读取的 PDF。
 - 允许空密码即可读取的权限保护 PDF，拒绝需要输入打开密码、损坏及零页 PDF；请求体上限为 100 MiB（界面文案为 100 MB，multipart 开销也计入后端请求上限）。
@@ -129,13 +131,13 @@ PyCharm 共享配置 `run` 使用项目 Node.js 执行 `npm ci` 和 `npm run bui
 首次导入成功返回 201：
 
 ```json
-{"id": "<material_id>", "filename": "课件.pdf", "page_count": 3}
+{"id": "<material_id>", "title": "课件.pdf", "page_count": 3}
 ```
 
 重复导入返回 200，包含 `duplicate: true` 和 `location`（`course_name`、可空 `chapter_name`），直接提供已有课件所在位置；不创建新记录／文件，也不修改已有笔记：
 
 ```json
-{"id": "<existing_material_id>", "filename": "原课件.pdf", "page_count": 3, "duplicate": true, "location": {"course_name": "数据结构", "chapter_name": "第一章"}}
+{"id": "<existing_material_id>", "title": "原课件.pdf", "page_count": 3, "duplicate": true, "location": {"course_name": "数据结构", "chapter_name": "第一章"}}
 ```
 
 数据库使用 SHA-256 指纹索引匹配内容，课件 ID 标识每个条目。上传由同一后端进程内的锁串行处理。迁移 `0008` 为旧条目中可读取的原文件补算缺失指纹。
@@ -164,7 +166,7 @@ PyCharm 共享配置 `run` 使用项目 Node.js 执行 `npm ci` 和 `npm run bui
 {"pages": [{"id": "<page_id>", "version": 0}], "display": "collapsed"}
 ```
 
-`pages` 必须恰含一个页面的 ID 与版本；`version` 为非负整数 `settings_version`（不接受布尔值）。请求只接受 `pages`、`display`，显示状态仅支持 `normal`／`collapsed`；分类、hidden、多页批量请求均返回 400。三种模式均使用此接口持久保存折叠／展开。
+`pages` 必须恰含一个页面的 ID 与版本；`version` 为非负整数 `settings_version`（不接受布尔值）。请求只接受 `pages`、`display`，显示状态仅支持 `normal`／`collapsed`；分类、hidden、多页批量请求均返回 400。整理和复习均使用此接口持久保存折叠／展开。
 成功 200：按原始页码顺序返回本次修改页面的属性数组，每页 `settings_version` 加 1，即使值未改变亦递增。
 
 ```json

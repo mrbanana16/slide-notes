@@ -35,8 +35,8 @@ beforeEach(() => {
 
 afterEach(() => { cleanup(); localStorage.clear(); vi.unstubAllGlobals(); vi.restoreAllMocks() })
 const materials = [
-  { id: 'a', filename: '第一份.pdf', page_count: 1, course_id: 'course', chapter_id: null, position: 0 },
-  { id: 'b', filename: '第二份.pdf', page_count: 1, course_id: 'course', chapter_id: null, position: 1 },
+  { id: 'a', title: '第一份.pdf', page_count: 1, course_id: 'course', chapter_id: null, position: 0 },
+  { id: 'b', title: '第二份.pdf', page_count: 1, course_id: 'course', chapter_id: null, position: 1 },
 ]
 
 const system = { id: 'system', name: '未分类', position: 0, is_system: true }
@@ -132,7 +132,7 @@ it('opens the existing material on duplicate import without adding a directory e
 })
 
 it('offers a copy immediately for an external duplicate file drop', async () => {
-  const copy = { ...materials[0], id: 'copy', filename: '第一份（副本 1）.pdf' }
+  const copy = { ...materials[0], id: 'copy', title: '第一份（副本 1）.pdf' }
   let created = false
   const fetch = vi.fn(async (url: string, options?: RequestInit) => {
     if (url.startsWith(duplicateLookup)) return Response.json({ ...materials[0], duplicate: true })
@@ -152,7 +152,7 @@ it('offers a copy immediately for an external duplicate file drop', async () => 
   await screen.findByText('课件已存在')
   expect(fetch.mock.calls.some(([, options]) => options?.method === 'POST')).toBe(false)
   fireEvent.click(screen.getByRole('button', { name: '创建副本' }))
-  await screen.findByRole('heading', { name: '第一份（副本 1）' })
+  await screen.findByRole('heading', { name: '第一份（副本 1）.pdf' })
   expect(fetch.mock.calls.filter(([, options]) => options?.method === 'POST')).toHaveLength(1)
 })
 
@@ -666,10 +666,10 @@ it('keeps a file error inside its import dialog and clears it on cancel', async 
   expect(screen.queryByText('PDF 已损坏')).toBeNull()
 })
 
-it('shows the full filename in a tooltip in the directory and toolbar', async () => {
+it('shows the full title in a tooltip in the directory and toolbar', async () => {
   const filename = '用于核对目录和顶栏悬浮提示的长课件名称 lecture - Linear regression.pdf'
   vi.stubGlobal('fetch', vi.fn(async (url: string) => Response.json(url === '/api/directory'
-    ? directory([{ ...materials[0], filename }]) : [{ id: 'page-a', number: 1, note: '', version: 0 }])))
+    ? directory([{ ...materials[0], title: filename }]) : [{ id: 'page-a', number: 1, note: '', version: 0 }])))
   render(<App />)
   const directoryName = await screen.findByText(filename)
   fireEvent.mouseEnter(directoryName.closest('.treeText')!)
@@ -682,4 +682,102 @@ it('shows the full filename in a tooltip in the directory and toolbar', async ()
   const toolbarName = await within(breadcrumb).findByText(filename)
   fireEvent.mouseEnter(toolbarName)
   expect((await screen.findByRole('tooltip')).textContent).toBe(filename)
+})
+
+it('shows file details and updates the sidebar, toolbar and editor title on blur', async () => {
+  const editedTitle = ' 统计学 第一讲 ' + '很长的课程标题'.repeat(12) + ' '
+  let sizeBytes = 1200
+  const fetch = vi.fn(async (url: string, options?: RequestInit) => {
+    if (url === '/api/materials/a/file/reveal') return new Response(null, { status: 204 })
+    if (url === '/api/materials/a' && options?.method === 'PATCH') {
+      return Response.json({ ...directory([{ ...materials[0], title: editedTitle.trim() }, materials[1]]), revision: 1 })
+    }
+    if (url === '/api/materials/a') return Response.json({
+      original_title: '原始课件.pdf', size_bytes: sizeBytes, imported_at: '2026-11-17T04:00:00Z',
+      note_count: 6, note_counts: { ai_summary: 1, personal_note: 2, qa: 3 }, location: { course_name: '数据结构', chapter_name: '第一章' },
+    })
+    return Response.json(url === '/api/directory' ? directory() : [{ id: 'page-a', number: 1, note: '', version: 0 }])
+  })
+  vi.stubGlobal('fetch', fetch)
+  render(<App />)
+  await openMaterial('第一份.pdf')
+  fireEvent.click(screen.getByLabelText('第一份.pdf的操作'))
+  const detailsAction = await screen.findByRole('menuitem', { name: /文件详情/ })
+  expect(detailsAction.querySelector('.anticon-file-search')).toBeTruthy()
+  fireEvent.click(detailsAction)
+  const title = await screen.findByRole('textbox', { name: '文件标题' })
+  const details = within(title.closest<HTMLElement>('[role="dialog"]')!)
+  expect(details.getByText('文件详情')).toBeTruthy()
+  expect((await details.findByText('原始文件名')).nextElementSibling?.textContent).toBe('原始课件.pdf')
+  expect(title.tagName).toBe('TEXTAREA')
+  expect(title.closest('.materialDetailsHeading')?.querySelector('.anticon-file-pdf')).toBeTruthy()
+  expect(details.getByRole('status').textContent).toBe('正常')
+  expect(details.getByText('原文件状态').parentElement?.firstElementChild?.textContent).toBe('原文件状态')
+  fireEvent.click(details.getByRole('button', { name: /打开目录/ }))
+  expect(fetch).toHaveBeenCalledWith('/api/materials/a/file/reveal', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
+  })
+  expect(details.getByText('1.17 KB')).toBeTruthy()
+  expect(details.getByText('数据结构 / 第一章')).toBeTruthy()
+  expect(details.getByText('已保存笔记条数').nextElementSibling?.textContent).toBe('6 条')
+  expect(details.getByText('已保存笔记条数').previousElementSibling?.previousElementSibling?.textContent).toBe('导入时间')
+  expect(details.getByText('AI 解释与总结').nextElementSibling?.textContent).toBe('1 条')
+  expect(details.getByText('个人笔记').nextElementSibling?.textContent).toBe('2 条')
+  expect(details.getByText('问答总条数').nextElementSibling?.textContent).toBe('3 条')
+  fireEvent.change(title, { target: { value: editedTitle } })
+  expect(fetch.mock.calls.some(([, options]) => options?.method === 'PATCH')).toBe(false)
+  fireEvent.blur(title)
+  await screen.findByRole('heading', { name: editedTitle.trim() })
+  expect(screen.getByLabelText(editedTitle.trim())).toBeTruthy()
+  expect(document.querySelector('.breadcrumb')?.textContent).toContain(editedTitle.trim())
+  const patch = fetch.mock.calls.find(([, options]) => options?.method === 'PATCH')
+  expect(patch?.[0]).toBe('/api/materials/a')
+  expect(JSON.parse(String(patch?.[1]?.body))).toEqual({ title: editedTitle.trim(), revision: 0 })
+  expect(details.getByText('原始课件.pdf')).toBeTruthy()
+
+  const dialog = title.closest<HTMLElement>('[role="dialog"]')!
+  fireEvent.click(dialog.querySelector('.ant-modal-close')!)
+  await waitFor(() => expect(document.body.contains(dialog)).toBe(false))
+  sizeBytes = 2 * 1024 ** 2
+  await directoryAction(editedTitle.trim(), '文件详情')
+  expect(await screen.findByText('2.00 MB')).toBeTruthy()
+})
+
+it('restores a missing original from details without opening the material', async () => {
+  let restored = false
+  let finishCheck!: () => void
+  const pendingCheck = new Promise<void>(resolve => { finishCheck = resolve })
+  const fetch = vi.fn(async (url: string, options?: RequestInit) => {
+    if (url === '/api/directory') return Response.json(directory())
+    if (url === '/api/materials/b/file' && options?.method === 'PUT') {
+      restored = true
+      return Response.json({ restored })
+    }
+    await pendingCheck
+    return Response.json({
+      size_bytes: restored ? 1200 : null, original_title: '第二份.pdf', imported_at: null,
+      note_count: 0, note_counts: { ai_summary: 0, personal_note: 0, qa: 0 },
+      location: { course_name: '数据结构', chapter_name: null },
+    })
+  })
+  vi.stubGlobal('fetch', fetch)
+  render(<App />)
+  await screen.findByText('第二份.pdf')
+  await directoryAction('第二份.pdf', '文件详情')
+  const title = await screen.findByRole('textbox', { name: '文件标题' })
+  const dialog = title.closest<HTMLElement>('[role="dialog"]')!
+  const details = within(dialog)
+  expect(details.getByRole('status').textContent).toBe('正在查找')
+  finishCheck()
+  expect(await details.findByText('缺失')).toBeTruthy()
+  const input = dialog.querySelector<HTMLInputElement>('input[type="file"]')!
+  const picker = vi.spyOn(input, 'click')
+  fireEvent.click(details.getByRole('button', { name: /重新导入/ }))
+  expect(picker).toHaveBeenCalledOnce()
+  fireEvent.change(input, { target: { files: [new File(['%PDF'], '第二份.pdf')] } })
+  expect(await details.findByText('正常')).toBeTruthy()
+  const restore = fetch.mock.calls.find(([, options]) => options?.method === 'PUT')
+  expect(restore?.[0]).toBe('/api/materials/b/file')
+  expect(((restore?.[1]?.body as FormData).get('file') as File).name).toBe('第二份.pdf')
+  expect(fetch.mock.calls.some(([url]) => url.endsWith('/pages'))).toBe(false)
 })

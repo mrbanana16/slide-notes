@@ -25,7 +25,7 @@ export function ConflictPage({ material, entry, number, store, onReturn }: {
   }, [entry.url])
   const page = { id: entry.pageId, number }
   return <section ref={panel} className="conflictPage" aria-label="冲突页整理">
-    <Button onClick={onReturn}>返回原阅读位置</Button><h2>{material.filename} · 第 {number} 页</h2>
+    <Button onClick={onReturn}>返回原阅读位置</Button><h2>{material.title} · 第 {number} 页</h2>
     <div className="conflictColumns"><div>{pdf && <PdfPage pdf={pdf} number={number} />}{!pdf && !failed && <Spin />}{failed && <Alert type="warning" showIcon title="课件预览加载失败，仍可核对笔记版本。" />}</div>
       <NoteEditor page={page} store={store} focusKind={entry.kind} /></div>
   </section>

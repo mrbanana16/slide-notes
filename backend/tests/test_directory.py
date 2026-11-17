@@ -61,7 +61,7 @@ def test_structure_order_move_rename_and_restart_keeps_notes(app):
     payload['material_ids'][c1] = []
     payload['material_ids'][ch2] = [m2['id'], m1['id']]
     assert client.put('/api/directory/order', json=payload).status_code == 200
-    for kind, resource_id, key in [('courses', c1, 'name'), ('chapters', ch2, 'name'), ('materials', m1['id'], 'filename')]:
+    for kind, resource_id, key in [('courses', c1, 'name'), ('chapters', ch2, 'name'), ('materials', m1['id'], 'title')]:
         assert write(client, 'patch', f'/api/{kind}/{resource_id}', **{key: '新名称'}).status_code == 200
     restarted = create_app(app.config['DATA_DIR'])
     try:
@@ -70,6 +70,13 @@ def test_structure_order_move_rename_and_restart_keeps_notes(app):
         assert [c['id'] for c in data['courses']] == [SYSTEM_COURSE_ID, c2, c1]
         assert [ch['id'] for ch in data['chapters'] if ch['course_id'] == c1] == [ch2, ch1]
         assert [m['id'] for m in data['materials'] if m['chapter_id'] == ch2] == [m2['id'], m1['id']]
+        detail = restored.get(f'/api/materials/{m1["id"]}').get_json()
+        assert detail['title'] == '新名称'
+        assert detail['original_title'] == '课件.pdf'
+        assert detail['size_bytes'] == len(pdf_bytes(1))
+        assert detail['imported_at'].endswith('+00:00')
+        assert detail['location'] == {'course_name': '新名称', 'chapter_name': '新名称'}
+        assert detail['note_count'] == 1
         page = restored.get(f'/api/materials/{m1["id"]}/pages').get_json()[0]
         assert page['id'] == pages[0]['id'] and page['note'] == '原页笔记'
         assert restored.get(f'/api/materials/{m1["id"]}/file').data == pdf_bytes(1)
@@ -133,8 +140,13 @@ def test_delete_counts_nonempty_guards_and_old_saves_cannot_restore(app):
     client.put(base + '/note', json={'note': '笔记', 'version': 0})
     client.put(base + '/summary', json={'summary': '总结', 'version': 0})
     client.put(base + '/qa/' + 'a' * 32, json={'question': '问题', 'answer': '回答', 'version': 0})
+    client.put(base + '/qa/' + 'b' * 32, json={'question': '已删除', 'answer': '', 'version': 0})
+    assert client.put(base + '/qa/' + 'b' * 32, json={
+        'question': '已删除', 'answer': '', 'version': 1, 'deleted': True,
+    }).status_code == 200
     detail = client.get(f'/api/materials/{mid}').get_json()
     assert detail['note_count'] == 3 and detail['page_ids'] == [page['id']]
+    assert detail['note_counts'] == {'ai_summary': 1, 'personal_note': 1, 'qa': 1}
     assert write(client, 'delete', f'/api/courses/{c}').status_code == 409
     assert write(client, 'delete', f'/api/chapters/{ch}').status_code == 409
     assert write(client, 'delete', f'/api/materials/{mid}').status_code == 400
@@ -278,3 +290,34 @@ def test_0004_upgrade_merges_legacy_unclassified_without_losing_chapters_or_note
         assert (page['id'], page['note'], page['version'], page['summary'], page['summary_version']) == ('p', '原笔记', 7, '原总结', 4)
     finally:
         upgraded.extensions['engine'].dispose()
+
+
+@pytest.mark.parametrize("platform, executable", [("darwin", "/usr/bin/open"), ("win32", "explorer.exe")])
+def test_reveal_original_selects_only_the_stored_pdf(app, monkeypatch, platform, executable):
+    from types import SimpleNamespace
+    from unittest.mock import Mock
+
+    import slide_notes.directory as directory_module
+
+    client = app.test_client()
+    material = upload_to(client, SYSTEM_COURSE_ID).get_json()
+    path = app.config["DATA_DIR"] / "materials" / material["id"] / "original.pdf"
+    url = f'/api/materials/{material["id"]}/file/reveal'
+    launch = Mock()
+    monkeypatch.setattr(directory_module, "sys", SimpleNamespace(platform=platform))
+    monkeypatch.setattr(directory_module, "subprocess", SimpleNamespace(
+        run=launch, Popen=launch, SubprocessError=RuntimeError,
+    ))
+
+    assert client.post(url, json={"path": "/tmp/another.pdf"}).status_code == 400
+    assert client.post(url, data="{}").status_code == 400
+    launch.assert_not_called()
+    assert client.post(url, json={}).status_code == 204
+    if platform == "darwin":
+        launch.assert_called_once_with([executable, "-R", str(path)], check=True, timeout=5)
+    else:
+        launch.assert_called_once_with([executable, f"/select,{path}"])
+
+    path.unlink()
+    assert client.post(url, json={}).status_code == 410
+    assert launch.call_count == 1

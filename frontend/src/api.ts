@@ -1,4 +1,13 @@
-export type Material = { id: string; filename: string; page_count: number; course_id: string; chapter_id: string | null; position: number }
+export type Material = { id: string; title: string; page_count: number; course_id: string; chapter_id: string | null; position: number }
+export type MaterialDetails = Material & {
+  original_title: string | null
+  size_bytes: number | null
+  imported_at: string | null
+  note_count: number
+  note_counts: { ai_summary: number; personal_note: number; qa: number }
+  page_ids: string[]
+  location: { course_name: string; chapter_name: string | null }
+}
 export type QA = { id: string; question: string; answer: string; position: number; version: number; deleted: boolean }
 export type PageSettings = { id: string; number: number; display: 'normal' | 'collapsed'; settings_version: number }
 export type Page = { display?: PageSettings['display']; settings_version?: number; id: string; number: number; note: string; version: number; summary: string; summary_version: number; qa: QA[] }

@@ -33,7 +33,7 @@ def test_duplicate_content_preserves_pages_notes_and_file(app):
     assert client.get(pages_url).get_json()[0]['note'] == 'keep this'
     assert len(list((app.config['DATA_DIR'] / 'materials').iterdir())) == 1
     assert list((app.config['DATA_DIR'] / 'tmp').iterdir()) == []
-    changed = upload(client, pdf_bytes(pages=2), filename=first['filename'])
+    changed = upload(client, pdf_bytes(pages=2), filename=first['title'])
     assert changed.status_code == 201
     assert changed.get_json()['id'] != first['id']
 
@@ -73,7 +73,8 @@ def test_explicit_copies_have_distinct_names_pages_and_notes(app):
         })
         assert response.status_code == 201
         copy = response.get_json()
-        assert copy['filename'] == f'lecture（副本 {number}）.pdf'
+        assert copy['title'] == f'lecture（副本 {number}）.pdf'
+        assert client.get(f'/api/materials/{copy["id"]}').get_json()['original_title'] == 'lecture.pdf'
         page = client.get(f'/api/materials/{copy["id"]}/pages').get_json()[0]
         assert page['id'] != original_page['id'] and page['note'] == ''
         copies.append(copy)
@@ -146,7 +147,7 @@ def test_reset_rebuilds_database_removes_files_and_can_import_again(app):
     with app.extensions['engine'].connect() as connection:
         for table in ('materials', 'pages', 'page_notes', 'qa_entries'):
             assert connection.scalar(text(f'SELECT count(*) FROM {table}')) == 0
-        assert connection.scalar(text('SELECT version_num FROM alembic_version')) == '0008'
+        assert connection.scalar(text('SELECT version_num FROM alembic_version')) == '0009'
     restarted = create_app(data)
     try:
         assert restarted.test_client().get('/api/materials').get_json() == []
@@ -210,6 +211,10 @@ def test_fingerprint_migration_keeps_legacy_duplicates_and_notes(tmp_path):
         assert response.status_code == 200
         assert response.get_json()['id'] == 'old-0'
         for i in range(2):
+            detail = client.get(f'/api/materials/old-{i}').get_json()
+            assert detail['title'] == 'old.pdf'
+            assert detail['original_title'] is None and detail['imported_at'] is None
+            assert detail['size_bytes'] == len(pdf_bytes(pages=1))
             assert client.get(f'/api/materials/old-{i}/pages').get_json()[0]['note'] == f'note-{i}'
     finally:
         app.extensions['engine'].dispose()

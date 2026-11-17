@@ -8,11 +8,11 @@ import { DraftStore } from './drafts'
 import { NoteEditor, NotePreview } from './NoteEditor'
 import { Divider, useLayoutSize } from './ReadingControls'
 import { PdfPage } from './PdfPage'
-import { closestPage, type Mode } from './reading'
+import { closestPage, type Mode, type ReadingLayout } from './reading'
 
 type Props = {
   materialId: string; pages: Page[]; pdf: PDFDocumentProxy; store: DraftStore
-  mode: Mode; onMode: (mode: Mode) => void; onSettings: (settings: PageSettings[]) => void
+  mode: Mode; layout: ReadingLayout; onLayout: (layout: ReadingLayout) => void; onSettings: (settings: PageSettings[]) => void
   onFailure: (message: string) => void
   reader: RefObject<HTMLElement | null>; pageNavigator: RefObject<HTMLDivElement | null>
 }
@@ -39,8 +39,7 @@ function ReaderNotes({ page, store, review, nearby }: { page: Page; store: Draft
   </div>
 }
 
-export function Reader({ materialId, pages, pdf, store, mode, onMode, onSettings, reader, pageNavigator, onFailure }: Props) {
-  const [layout, setLayout] = useState<'continuous' | 'single'>('continuous')
+export function Reader({ materialId, pages, pdf, store, mode, layout, onLayout, onSettings, reader, pageNavigator, onFailure }: Props) {
   const [current, setCurrent] = useState(1)
   const [saving, setSaving] = useState<string | null>(null)
   const [pageDraft, setPageDraft] = useState<number | string | null>(null)
@@ -48,7 +47,7 @@ export function Reader({ materialId, pages, pdf, store, mode, onMode, onSettings
   const split = useLayoutSize('slide-notes:pdf-percent', 60, 30, 72)
   const [zoom, setZoom] = useState(1)
   const [fit, setFit] = useState(false)
-  const single = mode === 'immerse' || (mode === 'review' && layout === 'single')
+  const single = layout === 'single'
   const shown = pages
   const active = shown.find(page => page.number === current) ?? closestPage(shown, current)
   const anchor = useRef<{ number: number; offset: number } | null>(null)
@@ -197,8 +196,8 @@ export function Reader({ materialId, pages, pdf, store, mode, onMode, onSettings
   return <>
     {pageNavigator.current && createPortal(pageIndicator, pageNavigator.current)}
     <div className="readingTools" aria-label="阅读工具">
-      {mode === 'immerse' && <Button onClick={() => transition(() => onMode('organize'))}>退出沉浸</Button>}
-      {mode === 'review' && <><strong>只读复习</strong><Segmented aria-label="阅读布局" value={layout} options={[{ label: '连续阅读', value: 'continuous' }, { label: '单页阅读', value: 'single' }]} onChange={value => transition(() => setLayout(value as 'continuous' | 'single'))} /></>}
+      {mode === 'review' && <strong>只读复习</strong>}
+      <Segmented<ReadingLayout> aria-label="阅读布局" value={layout} options={[{ label: '连续阅读', value: 'continuous' }, { label: '单页阅读', value: 'single' }]} onChange={value => transition(() => onLayout(value))} />
       {single && <><small>← / ↑ 上一页 · → / ↓ 下一页</small><Space.Compact>
         <Button icon={<LeftOutlined />} disabled={!active || shown[0]?.id === active.id} onClick={() => navigate(shown[shown.indexOf(active!) - 1].number)}>上一页</Button>
         <Button icon={<RightOutlined />} disabled={!active || shown.at(-1)?.id === active.id} onClick={() => navigate(shown[shown.indexOf(active!) + 1].number)}>下一页</Button>

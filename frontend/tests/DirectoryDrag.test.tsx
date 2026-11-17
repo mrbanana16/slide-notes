@@ -9,7 +9,7 @@ import type { Directory as DirectoryData } from '../src/api'
 
 const initial: DirectoryData = {
   revision: 1, courses: [{ id: 'c', name: '测试课程', position: 0 }], chapters: [],
-  materials: [{ id: 'a', filename: 'a.pdf', page_count: 1, course_id: 'c', chapter_id: null, position: 0 }, { id: 'b', filename: 'b.pdf', page_count: 1, course_id: 'c', chapter_id: null, position: 1 }],
+  materials: [{ id: 'a', title: 'a.pdf', page_count: 1, course_id: 'c', chapter_id: null, position: 0 }, { id: 'b', title: 'b.pdf', page_count: 1, course_id: 'c', chapter_id: null, position: 1 }],
 }
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
 function materialNames() { return [...screen.getByRole('navigation').querySelectorAll('.material strong')].map(node => node.textContent) }
@@ -18,7 +18,7 @@ it('keeps the new order visible during delayed persistence and after success', a
   let finish!: (value: boolean) => void
   function Harness() {
     const [data, setData] = useState(initial)
-    return <Directory data={data} selected="a" busy={false} onSelect={vi.fn()} onDelete={vi.fn()} mutate={async (_url, _method, body) => {
+    return <Directory data={data} selected="a" busy={false} onSelect={vi.fn()} onRestoreOriginal={vi.fn()} onDelete={vi.fn()} mutate={async (_url, _method, body) => {
       const success = await new Promise<boolean>(resolve => { finish = resolve })
       if (success) setData({ ...projectOrder(data, body as Order), revision: data.revision + 1 })
       return success
@@ -33,7 +33,7 @@ it('keeps the new order visible during delayed persistence and after success', a
 
 it('restores the previous order only when persistence fails', async () => {
   let finish!: (value: boolean) => void
-  render(<Directory data={initial} selected="a" busy={false} onSelect={vi.fn()} onDelete={vi.fn()} mutate={() => new Promise<boolean>(resolve => { finish = resolve })} />)
+  render(<Directory data={initial} selected="a" busy={false} onSelect={vi.fn()} onRestoreOriginal={vi.fn()} onDelete={vi.fn()} mutate={() => new Promise<boolean>(resolve => { finish = resolve })} />)
   await directoryAction('a.pdf', '下移')
   expect(materialNames()).toEqual(['b.pdf', 'a.pdf'])
   await act(async () => { finish(false) })
@@ -42,7 +42,7 @@ it('restores the previous order only when persistence fails', async () => {
 
 it('persists an actual Tree drag gap drop and clears native dragging state', async () => {
   const mutate = vi.fn().mockResolvedValue(true)
-  render(<Directory data={initial} selected="a" busy={false} onSelect={vi.fn()} onDelete={vi.fn()} mutate={mutate} />)
+  render(<Directory data={initial} selected="a" busy={false} onSelect={vi.fn()} onRestoreOriginal={vi.fn()} onDelete={vi.fn()} mutate={mutate} />)
   const source = screen.getByLabelText('a.pdf').closest('.ant-tree-treenode')!
   const target = screen.getByLabelText('b.pdf').closest('.ant-tree-treenode')!
   vi.spyOn(target, 'getBoundingClientRect').mockReturnValue({ top: 100, bottom: 140, left: 0, right: 200, width: 200, height: 40, x: 0, y: 100, toJSON: () => ({}) })
@@ -59,7 +59,7 @@ it('persists an actual Tree drag gap drop and clears native dragging state', asy
 
 it('keeps the pinned course undraggable and permits material transfers into it', () => {
   const data = { ...initial, courses: [{ id: 'system', name: '未分类', position: 0, is_system: true }, ...initial.courses] }
-  render(<Directory data={data} selected="a" busy={false} onSelect={vi.fn()} onDelete={vi.fn()} mutate={vi.fn()} />)
+  render(<Directory data={data} selected="a" busy={false} onSelect={vi.fn()} onRestoreOriginal={vi.fn()} onDelete={vi.fn()} mutate={vi.fn()} />)
   expect(screen.getByLabelText('未分类').closest('.ant-tree-treenode')?.getAttribute('draggable')).not.toBe('true')
   expect(screen.getByLabelText('a.pdf').closest('.ant-tree-treenode')?.getAttribute('draggable')).toBe('true')
   expect(treeDropOrder(data, 'c', 'system', -1)).toBeNull()
@@ -71,7 +71,7 @@ it('drops onto the last chapter and back onto the course itself', async () => {
   const mutate = vi.fn()
   function Harness() {
     const [directory, setDirectory] = useState(data)
-    return <Directory data={directory} selected="a" busy={false} onSelect={vi.fn()} onDelete={vi.fn()} mutate={async (_url, _method, body) => {
+    return <Directory data={directory} selected="a" busy={false} onSelect={vi.fn()} onRestoreOriginal={vi.fn()} onDelete={vi.fn()} mutate={async (_url, _method, body) => {
       const order = body as Order
       mutate(order)
       setDirectory({ ...projectOrder(directory, order), revision: directory.revision + 1 })

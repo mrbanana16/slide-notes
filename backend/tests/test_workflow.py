@@ -37,7 +37,7 @@ def upload(client, content=None, filename="课件.pdf"):
 def test_import_save_and_restart(app):
     client = app.test_client()
     material = upload(client).get_json()
-    assert material["filename"] == "课件.pdf"
+    assert material["title"] == "课件.pdf"
     assert material["page_count"] == 3
     pages = client.get(f'/api/materials/{material["id"]}/pages').get_json()
     assert [page["number"] for page in pages] == [1, 2, 3]
@@ -120,7 +120,7 @@ def test_fixed_default_data_path_and_migration(app, monkeypatch, tmp_path):
 def test_pdf_range_requests_and_internal_filename(app):
     client = app.test_client()
     material = upload(client, filename='../../课件.pdf').get_json()
-    assert material['filename'] == '课件.pdf'
+    assert material['title'] == '课件.pdf'
     response = client.get(f'/api/materials/{material["id"]}/file', headers={'Range': 'bytes=0-4'})
     assert response.status_code == 206
     assert response.data == b'%PDF-'

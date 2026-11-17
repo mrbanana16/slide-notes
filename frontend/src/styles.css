@@ -231,3 +231,14 @@ h1 { font-size: 24px; font-weight: 600; margin: 0; overflow-wrap: anywhere; }
 .editorCanvas textarea.ant-input:focus, .editorCanvas textarea.ant-input:focus-visible { outline: none; border: 0; box-shadow: none; }
 
 .editorCanvas .markdownPreview { padding: 0; }
+
+textarea.materialTitleInput { border-color: transparent; background: transparent; box-shadow: none; font-size: 18px; font-weight: 600; min-width: 0; overflow: hidden; overflow-wrap: anywhere; }
+textarea.materialTitleInput:hover, textarea.materialTitleInput:focus { border-color: var(--line); background: var(--canvas); }
+.materialDetailsHeading { display: flex; align-items: center; gap: 6px; }
+.materialDetailsList { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 8px 16px; }
+.materialDetailsList dt { color: var(--muted); }
+.materialDetailsList dd { margin: 0; overflow-wrap: anywhere; }
+.materialDetailsList .materialNoteBreakdown { grid-column: 1 / -1; margin-inline-start: 12px; padding-inline-start: 12px; border-inline-start: 1px solid var(--line); }
+.materialNoteBreakdown dl { margin: 0; gap: 4px 16px; font-size: 0.93em; }
+
+.materialFileStatus { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }

@@ -4,10 +4,10 @@ import { Divider, PdfIcon, useLayoutSize } from './ReadingControls'
 import { useEffect, useEffectEvent, useRef, useState, useSyncExternalStore, type CSSProperties } from 'react'
 import { getDocument, GlobalWorkerOptions, type PDFDocumentProxy } from 'pdfjs-dist'
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
-import { api, ApiError, type Material, type Page, type Directory as DirectoryData } from './api'
+import { api, ApiError, type Material, type MaterialDetails, type Page, type Directory as DirectoryData } from './api'
 import { ConflictPage } from './ConflictPage'
 import { Reader } from './Reader'
-import type { Mode } from './reading'
+import type { Mode, ReadingLayout } from './reading'
 import { DraftStore, type SaveRecord } from './drafts'
 import { Directory } from './Directory'
 import { ImportDialog } from './ImportDialog'
@@ -43,7 +43,7 @@ export default function App() {
   const duplicate = uploadDuplicate ?? checkedImport?.match
   const checkingFile = !!importFile && !checkedImport
   const duplicatePath = duplicate && (duplicate.location
-    ? [duplicate.location.course_name, duplicate.location.chapter_name, duplicate.filename].filter(Boolean).join(' / ')
+    ? [duplicate.location.course_name, duplicate.location.chapter_name, duplicate.title].filter(Boolean).join(' / ')
     : materialPath(directory, duplicate))
   const [importCourse, setImportCourse] = useState('')
   const [importChapter, setImportChapter] = useState('')
@@ -78,11 +78,13 @@ export default function App() {
       if (document.fullscreenElement) await document.exitFullscreen()
       else await document.documentElement.requestFullscreen()
     } catch {
-      toast.error({ title: '浏览器未进入全屏，仍可在当前窗口继续阅读或沉浸整理。', key: 'fullscreen-error', duration: ERROR_DURATION })
+      toast.error({ title: '浏览器未进入全屏，仍可在当前窗口继续使用当前布局。', key: 'fullscreen-error', duration: ERROR_DURATION })
     }
   }
   const [sidebar, setSidebar] = useState(true)
   const [mode, setMode] = useState<Mode>('organize')
+  const [layouts, setLayouts] = useState<Record<Mode, ReadingLayout>>({ organize: 'continuous', review: 'continuous' })
+  const layout = layouts[mode]
   const readOnly = mode === 'review'
   const [dragging, setDragging] = useState(false)
   const [notice, setNotice] = useState('')
@@ -211,18 +213,16 @@ export default function App() {
     return () => { stopped = true; void task.destroy() }
   }, [selected?.id, documentRetry])
 
-  async function replaceOriginal(file: File) {
-    if (!selected || readOnly || operation.current) return
+  async function restoreOriginal(materialId: string, file: File) {
+    if (readOnly || operation.current) throw new Error('当前无法导入原文件，请稍后重试。')
     operation.current = true
     setReplacingOriginal(true)
     setError(null)
     const form = new FormData()
     form.append('file', file)
     try {
-      await api(`/api/materials/${selected.id}/file`, { method: 'PUT', body: form })
-      setDocumentRetry(n => n + 1)
-    } catch (cause) {
-      setError({ message: cause instanceof Error ? cause.message : '原始 PDF 恢复失败。' })
+      await api(`/api/materials/${materialId}/file`, { method: 'PUT', body: form })
+      if (selected?.id === materialId) setDocumentRetry(n => n + 1)
     } finally {
       operation.current = false
       setReplacingOriginal(false)
@@ -271,9 +271,9 @@ export default function App() {
     operation.current = true; setDirectoryBusy(true); setError(null)
     let paused = false
     try {
-      const detail = await api<Material & { note_count: number; page_ids: string[] }>(`/api/materials/${material.id}`)
+      const detail = await api<MaterialDetails>(`/api/materials/${material.id}`)
       const local = Object.values(store.entries).filter(entry => detail.page_ids.includes(entry.pageId) && store.dirty(entry)).length
-      if (!await modal.confirm({ getContainer: overlayContainer, title: '删除课件？', okText: '确认删除', cancelText: '取消', okButtonProps: { danger: true }, content: `删除“${material.filename}”？将永久删除原始 PDF、${material.page_count} 页及 ${detail.note_count} 条已保存笔记／问答${local ? `，并丢弃 ${local} 处未保存编辑` : ''}。无法撤销。` })) return
+      if (!await modal.confirm({ getContainer: overlayContainer, title: '删除课件？', okText: '确认删除', cancelText: '取消', okButtonProps: { danger: true }, content: `删除“${material.title}”？将永久删除原始 PDF、${material.page_count} 页及 ${detail.note_count} 条已保存笔记／问答${local ? `，并丢弃 ${local} 处未保存编辑` : ''}。无法撤销。` })) return
       store.pause(true); paused = true
       const next = await api<DirectoryData>(`/api/materials/${material.id}`, { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ revision: directory.revision, confirmation: material.id }) })
       store.removePages(detail.page_ids)
@@ -358,7 +358,7 @@ export default function App() {
   const directoryPanel = <>
       <div className="brand"><ReadOutlined className="brandMark" aria-hidden="true" /><div><strong>slide-notes</strong><small>把理解留在每一页</small></div></div>
       <div className="directoryImport"><Button type="primary" disabled={readOnly || uploading || resetting || directoryBusy || loading} onClick={() => prepareImport()}>{uploading ? '正在导入…' : <><UploadOutlined aria-hidden="true" /> 导入 PDF</>}</Button></div>
-      <Directory readOnly={readOnly} data={directory} selected={selected?.id} busy={loading || uploading || resetting || directoryBusy} onSelect={material => { setSelected(material); setDrawer(false) }} mutate={mutateDirectory} onDelete={deleteMaterial} />
+      <Directory readOnly={readOnly} data={directory} selected={selected?.id} busy={loading || uploading || resetting || directoryBusy || replacingOriginal} onRestoreOriginal={restoreOriginal} onSelect={material => { setSelected(material); setDrawer(false) }} mutate={mutateDirectory} onDelete={deleteMaterial} />
       <div className="sidebarBottom"><Button type="text" onClick={() => { setDrawer(false); setSettingsOpen(true) }}><SettingOutlined aria-hidden="true" /> 系统设置</Button></div>
   </>
   useEffect(() => {
@@ -369,15 +369,21 @@ export default function App() {
     probe.remove()
   }, [])
   const [immersiveSidebar, setImmersiveSidebar] = useState(false)
-  const sidebarVisible = mode === 'immerse' ? immersiveSidebar : sidebar
+  const singleOrganize = !!selected && mode === 'organize' && layout === 'single'
+  const sidebarVisible = singleOrganize ? immersiveSidebar : sidebar
   const directoryVisible = narrow ? drawer : sidebarVisible
   function changeMode(next: Mode) {
     if (next !== mode) { setDrawer(false); setImmersiveSidebar(false) }
     setMode(next)
   }
+  function changeLayout(next: ReadingLayout) {
+    if (next === layout) return
+    if (mode === 'organize') { setDrawer(false); setImmersiveSidebar(false) }
+    setLayouts(previous => ({ ...previous, [mode]: next }))
+  }
   function toggleDirectory() {
     if (narrow) setDrawer(!drawer)
-    else if (mode === 'immerse') setImmersiveSidebar(!immersiveSidebar)
+    else if (singleOrganize) setImmersiveSidebar(!immersiveSidebar)
     else setSidebar(!sidebar)
   }
   const destinationCourse = importCourse || directory.courses[0]?.id || ''
@@ -511,14 +517,14 @@ export default function App() {
       <div className="readingLocation"><Breadcrumb className="breadcrumb" items={selected ? [
         { title: directory.courses.find(c => c.id === selected.course_id)?.name },
         ...(selected.chapter_id ? [{ title: directory.chapters.find(c => c.id === selected.chapter_id)?.name }] : []),
-        { title: <Tooltip title={selected.filename}><Typography.Text ellipsis>{selected.filename}</Typography.Text></Tooltip> },
+        { title: <Tooltip title={selected.title}><Typography.Text ellipsis>{selected.title}</Typography.Text></Tooltip> },
       ] : [{ title: '学习工作台' }]} /><div ref={pageNavigator} className="pageNavigatorHost" /></div>
       <Tooltip title={full ? '退出全屏' : '全屏'}>
       <Button type="text" className="fullIcon" aria-label={full ? '退出全屏' : '全屏'} title={full ? '退出全屏' : '全屏'} onClick={() => void fullscreen()}>
         {full ? <FullscreenExitOutlined /> : <FullscreenOutlined />}
       </Button></Tooltip>
       <Tabs className="modeSwitcher" aria-label="工作模式" activeKey={mode} onChange={value => changeMode(value as Mode)}
-        animated={{ inkBar: true, tabPane: false }} items={([['organize', '整理'], ['review', '复习'], ['immerse', '沉浸整理']] as const).map(([key, label]) => ({ key, label, disabled: uploading || resetting || directoryBusy || importOpen }))} />
+        animated={{ inkBar: true, tabPane: false }} items={([['organize', '整理'], ['review', '复习']] as const).map(([key, label]) => ({ key, label, disabled: uploading || resetting || directoryBusy || importOpen }))} />
       <Popover trigger={['hover', 'click', 'focus']} placement="bottomRight" content={<div className="saveLog">
         {store.history.length === 0 && <span>本次尚无保存记录</span>}
         {store.history.length > 0 && <div className="saveTimeline">{store.history.map((record, index) => {
@@ -528,7 +534,7 @@ export default function App() {
           const status = record.result === '成功' ? 'success' : record.result === '冲突' ? 'warning' : 'error'
           return <div className="saveTimelineItem" key={index}><Badge status={status} />
             <div className="saveTimelineText"><div className="saveTimelineTitle">{clock(record.time)} 保存{record.result}{!record.automatic && '（手动）'}{retry && <> <RetrySaveButton store={store} url={record.url} /></>}</div>
-              <div className="saveTimelineMeta">{file?.filename ?? '课件'} · 第 {location?.number ?? '—'} 页</div></div>
+              <div className="saveTimelineMeta">{file?.title ?? '课件'} · 第 {location?.number ?? '—'} 页</div></div>
           </div>
         })}</div>}
         <AntDivider /><div className="saveTimelineHint">停止输入将自动保存，也可使用 ⌘ / Ctrl + S 手动保存</div>
@@ -545,7 +551,9 @@ export default function App() {
     {selected && originalUnavailable && !resetting && <input ref={originalInput} type="file" accept="application/pdf,.pdf" hidden onChange={event => {
       const file = event.currentTarget.files?.[0]
       event.currentTarget.value = ''
-      if (file) void replaceOriginal(file)
+      if (file) void restoreOriginal(selected.id, file).catch(cause => {
+        setError({ message: cause instanceof Error ? cause.message : '原始 PDF 恢复失败。' })
+      })
     }} />}
     {conflict && <Alert type="error" showIcon title="笔记存在版本冲突，本地草稿已保留。" action={<Button type="link" onClick={() => { returnPosition.current = reader.current?.scrollTop ?? 0; setTargetUrl(conflict.url) }}>查看冲突</Button>} />}</div>
     {dragging && <div className="dropOverlay">松开以导入 PDF</div>}
@@ -555,7 +563,7 @@ export default function App() {
       {directoryBusy && <p role="status">正在保存目录…</p>}
       {loading && <p className="loading" role="status">正在读取课件目录…</p>}
       {!selected && !loading && <div className="emptyState"><Empty image={<ReadOutlined />} description={false} /><h1>从一份课件开始</h1><p>课件在左，理解在右。<br />逐页阅读，把重点写成自己的笔记。</p><Button type="primary" disabled={readOnly || uploading || resetting || directoryBusy || loading} onClick={() => prepareImport()}>{uploading ? '正在校验并导入…' : '导入 PDF 课件'}</Button><small>也可将 PDF 拖到这里 · 最大 100 MB</small>{materials.length > 0 && <p>或从左侧目录打开已有课件。</p>}</div>}
-      {selected && !resetting && <><div className="documentHeading"><PdfIcon /><h1>{selected.filename.replace(/\.pdf$/i, '')}</h1><Tag>{selected.page_count}页</Tag></div>{documentLoading && <div className="loading" role="status"><Spin size="small" /> 正在加载课件…</div>}{pdf && <Reader key={selected.id} materialId={selected.id} pages={pages} pdf={pdf} store={store} onFailure={message => toast.error({ title: message, duration: ERROR_DURATION, key: 'page-settings' })} mode={mode} onMode={changeMode} reader={reader} pageNavigator={pageNavigator} onSettings={settings => setPages(old => old.map(page => { const next = settings.find(item => item.id === page.id); return next ? { ...page, display: next.display, settings_version: next.settings_version } : page }))} />}</>}
+      {selected && !resetting && <><div className="documentHeading"><PdfIcon /><h1>{selected.title}</h1><Tag>{selected.page_count}页</Tag></div>{documentLoading && <div className="loading" role="status"><Spin size="small" /> 正在加载课件…</div>}{pdf && <Reader key={selected.id} materialId={selected.id} pages={pages} pdf={pdf} store={store} onFailure={message => toast.error({ title: message, duration: ERROR_DURATION, key: 'page-settings' })} mode={mode} layout={layout} onLayout={changeLayout} reader={reader} pageNavigator={pageNavigator} onSettings={settings => setPages(old => old.map(page => { const next = settings.find(item => item.id === page.id); return next ? { ...page, display: next.display, settings_version: next.settings_version } : page }))} />}</>}
       {selected && originalUnavailable && !resetting && <Empty className="originalUnavailable" description="原始 PDF 丢失或无法读取，已保存的笔记仍在。" />}
     </main></section>
     {target && targetMaterial && targetLocation && <ConflictPage key={target.url} material={targetMaterial} number={targetLocation.number} entry={target} store={store} onReturn={() => { setTargetUrl(''); if (reader.current) reader.current.scrollTop = returnPosition.current }} />}

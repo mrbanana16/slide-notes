@@ -9,7 +9,7 @@ afterEach(() => { cleanup(); localStorage.clear(); vi.unstubAllGlobals(); vi.res
 
 function fixture(displays = ['normal', 'normal', 'normal']) {
   let pages = displays.map((display, i) => ({ id: `p${i + 1}`, number: i + 1, note: '', version: 0, summary: '', summary_version: 0, qa: [], display, settings_version: 0 }))
-  const material = { id: 'a', filename: '课件.pdf', page_count: pages.length, course_id: 'c', chapter_id: null, position: 0 }
+  const material = { id: 'a', title: '课件.pdf', page_count: pages.length, course_id: 'c', chapter_id: null, position: 0 }
   const fetch = vi.fn(async (url: string, options?: RequestInit) => {
     if (url === '/api/status') return Response.json({ status: 'ok' })
     if (url === '/api/directory') return new Response(JSON.stringify({ revision: 0, courses: [{ id: 'c', name: '课程', position: 0 }], chapters: [], materials: [material] }))
@@ -29,7 +29,7 @@ async function open() {
   await openMaterial('课件.pdf')
   await screen.findByText('PDF 第 1 页', {}, { timeout: 3500 })
 }
-it('preserves unsaved drafts across all modes and provides strictly read-only review', async () => {
+it('preserves unsaved drafts across modes and layouts and provides strictly read-only review', async () => {
   const fetch = fixture()
   await open()
   fireEvent.change(screen.getAllByLabelText('个人笔记')[0], { target: { value: '草稿 **第一页**' } })
@@ -52,13 +52,19 @@ it('preserves unsaved drafts across all modes and provides strictly read-only re
   await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
   fireEvent.click(screen.getByText('单页阅读'))
   expect(screen.queryByText('PDF 第 2 页')).toBeNull()
-  fireEvent.click(screen.getByRole('tab', { name: '沉浸整理' }))
+  fireEvent.click(screen.getByRole('tab', { name: '整理' }))
+  expect(screen.getByText('PDF 第 2 页')).toBeTruthy()
+  fireEvent.click(screen.getByText('单页阅读'))
   expect((screen.getByLabelText('个人笔记') as HTMLTextAreaElement).value).toBe('草稿 **第一页**')
   expect(document.querySelector('.workspace')?.classList.contains('sidebarClosed')).toBe(true)
   fireEvent.click(screen.getByLabelText('展开目录'))
   expect(screen.getByLabelText('收起目录').getAttribute('aria-expanded')).toBe('true')
-  fireEvent.click(screen.getByLabelText('收起目录'))
-  fireEvent.click(screen.getByText('退出沉浸'))
+  fireEvent.click(screen.getByText('连续阅读'))
+  expect(screen.getByLabelText('收起目录').getAttribute('aria-expanded')).toBe('true')
+  expect(screen.queryByRole('tab', { name: '沉浸整理' })).toBeNull()
+  fireEvent.click(screen.getByRole('tab', { name: '复习' }))
+  expect(screen.queryByText('PDF 第 2 页')).toBeNull()
+  fireEvent.click(screen.getByRole('tab', { name: '整理' }))
   expect((screen.getAllByLabelText('个人笔记')[0] as HTMLTextAreaElement).value).toBe('草稿 **第一页**')
   expect(fetch.mock.calls.filter(call => call[1]?.method === 'PATCH')).toHaveLength(0)
 })
@@ -69,7 +75,7 @@ it('keeps review layout independent of fullscreen, and offers fallback if fullsc
   await open()
   fireEvent.click(screen.getByRole('tab', { name: '复习' }))
   fireEvent.click(screen.getByLabelText('全屏'))
-  await screen.findByText('浏览器未进入全屏，仍可在当前窗口继续阅读或沉浸整理。')
+  await screen.findByText('浏览器未进入全屏，仍可在当前窗口继续使用当前布局。')
   expect(screen.getByText('PDF 第 2 页')).toBeTruthy()
   fireEvent.click(screen.getByText('单页阅读'))
   fireEvent.change(screen.getByLabelText('跳转页码'), { target: { value: '2' } })
@@ -94,8 +100,6 @@ it('restores the original page and offset when switching continuous and single l
   rows.forEach((row, index) => vi.spyOn(row, 'getBoundingClientRect').mockImplementation(() => ({ top: index * 1000 - reader.scrollTop, bottom: index * 1000 + 900 - reader.scrollTop }) as DOMRect))
   reader.scrollTop = 1100
   fireEvent.scroll(reader)
-  fireEvent.click(screen.getByRole('tab', { name: '复习' }))
-  expect(reader.scrollTop).toBe(1100)
   fireEvent.click(screen.getByText('单页阅读'))
   expect(screen.getByText('PDF 第 2 页')).toBeTruthy()
   expect(screen.queryByText('PDF 第 1 页')).toBeNull()
@@ -120,7 +124,9 @@ it('protects segmented arrows and turns pages from ordinary buttons', async () =
     fireEvent.keyDown(document.body, { key })
     expect(screen.getByText(`PDF 第 ${number} 页`)).toBeTruthy()
   }
-  fireEvent.click(screen.getByRole('tab', { name: '沉浸整理' }))
+  fireEvent.click(screen.getByRole('tab', { name: '整理' }))
+  expect(screen.getByText('PDF 第 2 页')).toBeTruthy()
+  fireEvent.click(screen.getByText('单页阅读'))
   const nextButton = screen.getByText('下一页')
   nextButton.focus()
   fireEvent.keyDown(nextButton, { key: 'ArrowDown' })
@@ -130,7 +136,7 @@ it('protects segmented arrows and turns pages from ordinary buttons', async () =
 it('leaves arrows to text inputs, editable content, selectors, composition and modifier keys', async () => {
   fixture()
   await open()
-  fireEvent.click(screen.getByRole('tab', { name: '沉浸整理' }))
+  fireEvent.click(screen.getByText('单页阅读'))
   const editable = document.createElement('div')
   editable.contentEditable = 'true'
   editable.setAttribute('contenteditable', 'true')

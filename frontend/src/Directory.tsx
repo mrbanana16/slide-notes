@@ -1,10 +1,11 @@
-import { PlusOutlined, EllipsisOutlined, RightOutlined, EditOutlined, ArrowUpOutlined, ArrowDownOutlined, DeleteOutlined, FolderOpenOutlined, FolderOutlined, FilePdfOutlined } from '@ant-design/icons'
+import { PlusOutlined, EllipsisOutlined, RightOutlined, EditOutlined, ArrowUpOutlined, ArrowDownOutlined, DeleteOutlined, FolderOpenOutlined, FolderOutlined, FilePdfOutlined, FileSearchOutlined } from '@ant-design/icons'
 import { Button, Dropdown, Input, Modal, Select, Tooltip, Tree, type TreeProps } from 'antd'
 import { overlayContainer, useMediaPreference } from './theme'
 import { useRef, useState, type DragEvent } from 'react'
 import type { Directory as DirectoryData, Material } from './api'
 import { treeDropOrder } from './directoryTree'
 import { TransferDialog } from './TransferDialog'
+import { MaterialDetails } from './MaterialDetails'
 import { directoryOrder, movedOrder, projectOrder, type Order } from './directoryOrder'
 
 type Props = {
@@ -12,11 +13,13 @@ type Props = {
   onSelect: (material: Material) => void
   mutate: (url: string, method: string, body: object) => Promise<boolean>
   onDelete: (material: Material) => Promise<void>
+  onRestoreOriginal: (materialId: string, file: File) => Promise<void>
 }
 type NameDialog = { title: string; initial: string; url: string; method: string; field: string; course_id?: string }
-export function Directory({ data: savedData, selected, busy: externalBusy, onSelect, mutate, onDelete, readOnly = false }: Props) {
+export function Directory({ data: savedData, selected, busy: externalBusy, onSelect, mutate, onDelete, onRestoreOriginal, readOnly = false }: Props) {
   const reducedMotion = useMediaPreference('(prefers-reduced-motion: reduce)')
   const [menuId, setMenuId] = useState<string | null>(null)
+  const [detailsId, setDetailsId] = useState<string | null>(null)
   const [moving, setMoving] = useState<Material | null>(null)
   const [destination, setDestination] = useState('')
   const [optimistic, setOptimistic] = useState<DirectoryData | null>(null)
@@ -26,6 +29,7 @@ export function Directory({ data: savedData, selected, busy: externalBusy, onSel
   const [dropHint, setDropHint] = useState<{ id: string; position: number } | null>(null)
   const data = optimistic ?? savedData
   const busy = externalBusy || saving
+  const detailsMaterial = savedData.materials.find(material => material.id === detailsId)
   async function saveOrder(next: Order) {
     if (busy) return
     setSaving(true)
@@ -76,7 +80,7 @@ export function Directory({ data: savedData, selected, busy: externalBusy, onSel
     if (readOnly) return null
     const fixed = kind === 'courses' && data.courses.find(c => c.id === id)?.is_system
 
-    const rename = () => openName({ title: '重命名', initial: name, url: '/api/' + kind + '/' + id, method: 'PATCH', field: kind === 'materials' ? 'filename' : 'name' })
+    const rename = () => openName({ title: '重命名', initial: name, url: '/api/' + kind + '/' + id, method: 'PATCH', field: kind === 'materials' ? 'title' : 'name' })
     const remove = () => {
       if (kind === 'materials') void onDelete(data.materials.find(m => m.id === id)!)
       else modal.confirm({ title: '删除“' + name + '”？', content: '仅可删除空课程或空章节。', okText: '删除', cancelText: '取消', okButtonProps: { danger: true },
@@ -84,6 +88,7 @@ export function Directory({ data: savedData, selected, busy: externalBusy, onSel
     }
     return <Dropdown trigger={['click']} open={menuId === id} onOpenChange={open => setMenuId(open ? id : null)}
       menu={{ items: [
+        ...(kind === 'materials' ? [{ key: 'details', label: '文件详情', icon: <FileSearchOutlined />, disabled: busy, onClick: () => setDetailsId(id) }] : []),
         ...(kind === 'courses' ? [{ key: 'chapter', label: '添加章节', icon: <PlusOutlined />, disabled: busy, onClick: () => create('chapters', id) }] : []),
         ...(!fixed ? [{ key: 'rename', label: '重命名', icon: <EditOutlined />, disabled: busy, onClick: rename },
         { key: 'up', label: '上移', icon: <ArrowUpOutlined />, disabled: busy || ids.indexOf(id) === 0, onClick: () => shift(id, ids, -1) },
@@ -99,7 +104,7 @@ export function Directory({ data: savedData, selected, busy: externalBusy, onSel
   }
 
   const materials = (course: string, chapter: string | null) => data.materials.filter(item => item.course_id === course && item.chapter_id === chapter).map(item => ({
-    key: item.id, title: item.filename, kind: 'materials', course, isLeaf: true, disabled: busy,
+    key: item.id, title: item.title, kind: 'materials', course, isLeaf: true, disabled: busy,
   }))
   const treeData = data.courses.map(course => ({
     key: course.id, title: course.name, kind: 'courses', course: course.id, isLeaf: false, disabled: busy,
@@ -147,7 +152,7 @@ export function Directory({ data: savedData, selected, busy: externalBusy, onSel
       data-drop={dropHint?.id === id ? dropHint.position : undefined}>
       <span className={item ? 'treeName material' : 'treeName'} title={item ? '' : String(node.title)} aria-label={String(node.title)} aria-current={selected === id ? 'page' : undefined}>
         {item ? <FilePdfOutlined aria-hidden="true" /> : closed.has(id) ? <FolderOutlined aria-hidden="true" /> : <FolderOpenOutlined aria-hidden="true" />}
-        {item ? <><Tooltip title={item.filename}><span className="treeText"><strong>{item.filename}</strong></span></Tooltip><small>{item.page_count} 页</small></>
+        {item ? <><Tooltip title={item.title}><span className="treeText"><strong>{item.title}</strong></span></Tooltip><small>{item.page_count} 页</small></>
           : <span className="treeText">{node.title}</span>}
       </span>
       <span className="treeActions" onClick={event => event.stopPropagation()} onKeyDown={event => event.stopPropagation()} onMouseDown={event => event.stopPropagation()} draggable={false} onDragStart={event => { event.preventDefault(); event.stopPropagation() }}>{controls(node.kind, id, String(node.title), ids)}</span>
@@ -156,14 +161,17 @@ export function Directory({ data: savedData, selected, busy: externalBusy, onSel
   return <>
     <div className="directoryHeading">课程目录 <Tooltip title="创建课程"><Button type="text" disabled={busy || readOnly} onClick={() => void create('courses')} aria-label="创建课程"><PlusOutlined /></Button></Tooltip></div>
     {modalHolder}
-    <Modal open={!!moving} title={'移动“' + moving?.filename + '”'} getContainer={overlayContainer} okText="移动" cancelText="取消"
+    {detailsMaterial && <MaterialDetails key={detailsMaterial.id} material={detailsMaterial} busy={busy || readOnly}
+      onClose={() => setDetailsId(null)} onRestoreOriginal={file => onRestoreOriginal(detailsMaterial.id, file)}
+      onRename={title => mutate('/api/materials/' + detailsMaterial.id, 'PATCH', { title })} />}
+    <Modal open={!!moving} title={'移动“' + moving?.title + '”'} getContainer={overlayContainer} okText="移动" cancelText="取消"
       onCancel={() => setMoving(null)} okButtonProps={{ disabled: busy }} onOk={() => {
         if (!moving || busy) return
         const next = movedOrder(data, moving.id, destination)
         setMoving(null)
         if (next) submitOrder(next)
       }}>
-      <Select aria-label={moving ? `移动${moving.filename}到章节` : '移动目标'} style={{ width: '100%' }} value={destination} onChange={setDestination} disabled={busy}
+      <Select aria-label={moving ? `移动${moving.title}到章节` : '移动目标'} style={{ width: '100%' }} value={destination} onChange={setDestination} disabled={busy}
         options={data.courses.map(course => ({ label: course.name, options: [
           { value: 'group:' + course.id, label: '课程直属' },
           ...data.chapters.filter(c => c.course_id === course.id).map(c => ({ value: 'group:' + c.id, label: c.name })),

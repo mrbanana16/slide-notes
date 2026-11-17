@@ -151,17 +151,19 @@ def create_app(data_dir=None):
                     course_id = SYSTEM_COURSE_ID
                 validate_destination(session, course_id, chapter_id)
                 position = session.scalar(select(func.max(Material.position)).where(Material.course_id == course_id, Material.chapter_id == chapter_id))
-                filename = uploaded.filename.replace("\\", "/").split("/")[-1]
+                original_title = uploaded.filename.replace("\\", "/").split("/")[-1]
+                title = original_title
                 if existing is not None:
-                    names = {name.casefold() for name in session.scalars(select(Material.filename).where(
+                    names = {name.casefold() for name in session.scalars(select(Material.title).where(
                         Material.course_id == course_id, Material.chapter_id == chapter_id))}
-                    stem = filename[:-4]
+                    stem = original_title[:-4]
                     number = 1
-                    filename = f"{stem}（副本 {number}）.pdf"
-                    while filename.casefold() in names:
+                    title = f"{stem}（副本 {number}）.pdf"
+                    while title.casefold() in names:
                         number += 1
-                        filename = f"{stem}（副本 {number}）.pdf"
-                material = Material(course_id=course_id, chapter_id=chapter_id, position=(position if position is not None else -1) + 1, id=material_id, filename=filename, page_count=count, content_hash=digest)
+                        title = f"{stem}（副本 {number}）.pdf"
+                material = Material(course_id=course_id, chapter_id=chapter_id, position=(position if position is not None else -1) + 1, id=material_id, title=title, original_title=original_title,
+                                    imported_at=datetime.now(timezone.utc).isoformat(), page_count=count, content_hash=digest)
                 session.add(material)
                 bump(session)
                 session.flush()

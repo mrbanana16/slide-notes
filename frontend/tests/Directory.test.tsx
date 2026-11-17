@@ -10,16 +10,16 @@ const data: DirectoryData = {
   courses: [{ id: 'c1', name: '课程一', position: 0 }, { id: 'c2', name: '课程二', position: 1 }],
   chapters: [{ id: 'ch1', name: '第一章', course_id: 'c1', position: 0 }, { id: 'ch2', name: '第二章', course_id: 'c1', position: 1 }],
   materials: [
-    { id: 'm1', filename: '一.pdf', course_id: 'c1', chapter_id: null, position: 0, page_count: 1 },
-    { id: 'm2', filename: '二.pdf', course_id: 'c1', chapter_id: null, position: 1, page_count: 1 },
-    { id: 'm3', filename: '三.pdf', course_id: 'c1', chapter_id: 'ch1', position: 0, page_count: 1 },
+    { id: 'm1', title: '一.pdf', course_id: 'c1', chapter_id: null, position: 0, page_count: 1 },
+    { id: 'm2', title: '二.pdf', course_id: 'c1', chapter_id: null, position: 1, page_count: 1 },
+    { id: 'm3', title: '三.pdf', course_id: 'c1', chapter_id: 'ch1', position: 0, page_count: 1 },
   ],
 }
 beforeEach(() => { HTMLDialogElement.prototype.showModal = function () { this.open = true }; HTMLDialogElement.prototype.close = function () { this.open = false } })
 afterEach(() => { cleanup(); vi.restoreAllMocks() })
 function setup(busy = false) {
   const mutate = vi.fn().mockResolvedValue(true), onSelect = vi.fn(), onDelete = vi.fn()
-  render(<Directory data={data} selected="m1" busy={busy} mutate={mutate} onSelect={onSelect} onDelete={onDelete} />)
+  render(<Directory data={data} selected="m1" busy={busy} mutate={mutate} onSelect={onSelect} onRestoreOriginal={vi.fn()} onDelete={onDelete} />)
   return { mutate, onSelect, onDelete }
 }
 it('offers keyboard accessible reorder and chapter move with all stable ids', async () => {
@@ -107,7 +107,7 @@ it('shows source and destination and submits a cross course move only after conf
 
 it('hides destructive and reorder controls for the pinned system course', async () => {
   const current = { ...data, courses: [{ id: 'system', name: '未分类', position: 0, is_system: true }, ...data.courses] }
-  render(<Directory data={current} selected="m1" busy={false} mutate={vi.fn()} onSelect={vi.fn()} onDelete={vi.fn()} />)
+  render(<Directory data={current} selected="m1" busy={false} mutate={vi.fn()} onSelect={vi.fn()} onRestoreOriginal={vi.fn()} onDelete={vi.fn()} />)
   await directoryAction('未分类', '添加章节')
   expect(screen.getByRole('dialog')).toBeTruthy()
   fireEvent.click(screen.getByRole('button', { name: /取\s*消/ }))

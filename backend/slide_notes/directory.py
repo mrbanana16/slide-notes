@@ -1,4 +1,7 @@
 import shutil
+import subprocess
+import sys
+from stat import S_ISREG
 from uuid import uuid4
 
 from flask import Blueprint, abort, jsonify, request
@@ -11,15 +14,18 @@ SYSTEM_COURSE_ID = "00000000000000000000000000000000"
 
 
 def material_json(material):
-    return {"id": material.id, "filename": material.filename, "page_count": material.page_count,
+    return {"id": material.id, "title": material.title, "page_count": material.page_count,
             "course_id": material.course_id, "chapter_id": material.chapter_id, "position": material.position}
 
 
-def duplicate_json(session, material):
+def material_location(session, material):
     course = session.get(Course, material.course_id)
     chapter = session.get(Chapter, material.chapter_id) if material.chapter_id else None
-    return {**material_json(material), "duplicate": True,
-            "location": {"course_name": course.name, "chapter_name": chapter.name if chapter else None}}
+    return {"course_name": course.name, "chapter_name": chapter.name if chapter else None}
+
+
+def duplicate_json(session, material):
+    return {**material_json(material), "duplicate": True, "location": material_location(session, material)}
 
 
 def snapshot(session):
@@ -99,7 +105,7 @@ def register_directory(app, engine, data):
             if model is Course and resource.is_system:
                 abort(400, description="系统“未分类”固定存在，不能重命名。")
             if model is Material:
-                resource.filename = name_checked(body, "filename")
+                resource.title = name_checked(body, "title")
             else:
                 resource.name = name_checked(body)
             bump(session)
@@ -133,8 +139,43 @@ def register_directory(app, engine, data):
                 abort(404, description="课件不存在。")
             pages = list(session.scalars(select(Page).where(Page.material_id == material_id).order_by(Page.number)
                                          .options(joinedload(Page.note), selectinload(Page.qa))))
-            notes = sum((bool(p.note.personal_note) + bool(p.note.ai_summary) if p.note else 0) + sum(not q.deleted for q in p.qa) for p in pages)
-            return jsonify(**material_json(material), note_count=notes, page_ids=[p.id for p in pages])
+            note_counts = {
+                "ai_summary": sum(bool(page.note.ai_summary) for page in pages if page.note),
+                "personal_note": sum(bool(page.note.personal_note) for page in pages if page.note),
+                "qa": sum(not entry.deleted for page in pages for entry in page.qa),
+            }
+            try:
+                info = (data / "materials" / material.id / "original.pdf").stat()
+                size_bytes = info.st_size if S_ISREG(info.st_mode) else None
+            except FileNotFoundError:
+                size_bytes = None
+            return jsonify(**material_json(material), original_title=material.original_title,
+                           imported_at=material.imported_at, size_bytes=size_bytes,
+                           location=material_location(session, material), note_count=sum(note_counts.values()),
+                           note_counts=note_counts, page_ids=[p.id for p in pages])
+
+    @routes.post("/api/materials/<material_id>/file/reveal")
+    def reveal_original(material_id):
+        if request.get_json(silent=True) != {}:
+            abort(400, description="请通过文件详情打开原文件目录。")
+        with Session(engine) as session:
+            if session.get(Material, material_id) is None:
+                abort(404, description="课件不存在。")
+        path = data / "materials" / material_id / "original.pdf"
+        if not path.is_file():
+            abort(410, description="原始 PDF 缺失。")
+        if path.resolve() != path:
+            abort(403, description="原文件目录无法直接定位。")
+        try:
+            if sys.platform == "darwin":
+                subprocess.run(["/usr/bin/open", "-R", str(path)], check=True, timeout=5)
+            elif sys.platform == "win32":
+                subprocess.Popen(["explorer.exe", f"/select,{path}"])
+            else:
+                abort(501, description="当前系统暂不支持从文件详情打开目录。")
+        except (OSError, subprocess.SubprocessError):
+            abort(500, description="无法打开系统文件管理器。")
+        return "", 204
 
     @routes.delete("/api/materials/<material_id>")
     def delete_material(material_id):
