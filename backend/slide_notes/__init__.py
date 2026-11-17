@@ -332,7 +332,11 @@ def create_app(data_dir=None):
     dist = BACKEND.parent / "frontend" / "dist"
 
     @app.get("/")
-    def index():
+    @app.get("/note", strict_slashes=False)
+    @app.get("/review", strict_slashes=False)
+    @app.get("/note/<material_id>", strict_slashes=False)
+    @app.get("/review/<material_id>", strict_slashes=False)
+    def index(material_id=None):
         if not (dist / "index.html").exists():
             return "请先在 frontend 目录执行 npm run build，或启动 Vite 开发服务器。", 503
         return send_from_directory(dist, "index.html")

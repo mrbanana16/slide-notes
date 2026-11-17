@@ -1,20 +1,22 @@
 # 前端页面列表
 
-2026-11-17 更新，整理模式支持连续与单页布局。阶段六发布版本为 v1.0。
+2026-11-17 更新，顶栏支持切换课件，工作台支持课件直达地址。阶段六发布版本为 v1.0。
 
 ## 页面与页面内状态
 
-日常地址：[http://127.0.0.1:5001/](http://127.0.0.1:5001/)。开发地址以 Vite 控制台为准；所有视图均在 `/` 内切换，不增加独立路由。
+日常地址：[http://127.0.0.1:5001/](http://127.0.0.1:5001/)。开发地址以 Vite 控制台为准。整理使用 `/note/{课件ID}`，复习使用 `/review/{课件ID}`。未打开课件时可通过 `/note` 或 `/review` 进入对应模式，`/` 默认进入整理。
 
 | 页面／视图 | 进入方式与作用 | 主要操作 | 代码文件 | 关联接口 |
 |---|---|---|---|---|
-| 工作台初始视图 `/` | 首次进入、没有选中课件或清空后 | 固定“未分类”、创建普通课程、导入 PDF、打开目录内课件、收起目录 | `frontend/src/App.tsx` | GET `/api/directory`、POST `/api/courses` |
-| 连续整理视图 `/` | 顶部「整理」，首次默认连续；工具栏「连续阅读」可从单页返回并恢复目录状态 | 查看 PDF、逐页编辑、折叠笔记区、预览 Markdown、逐页折叠／展开 | `App.tsx`、`Reader.tsx`、`PdfPage.tsx`、`NoteEditor.tsx` | GET `/api/materials/{id}/pages`、GET `/api/materials/{id}/file` |
-| 复习连续视图 `/` | 顶部「复习」，首次默认连续；同一路由内状态 | 逐页 PDF 与 Markdown 只读预览、笔记区临时折叠、逐页折叠与独立全屏；禁止笔记、目录、导入／删除／清空修改 | `App.tsx`、`Reader.tsx`、`NoteEditor.tsx` 的 `NotePreview` | 共用页面／文件 GET；先前编辑仍由 `drafts.ts` 保存 |
-| 复习单页视图 `/` | 复习工具栏「单页阅读」 | 保留当前页，顶栏页码可输入并回车跳转，上一／下一页、←／↑ 上一页与 →／↓ 下一页、缩放／适应页面；返回连续时恢复页与页内位置，全屏与布局互不改变 | `Reader.tsx`、`App.tsx`、`reading.ts`、`PdfPage.tsx` | 共用页面／文件 GET，无新的模式 API |
-| 单页整理视图 `/` | 整理工具栏「单页阅读」，目录默认收起，可用顶栏菜单键展开 | 单页编辑、翻页、跳转、缩放、适应页面、逐页折叠／展开、全屏 | `App.tsx`、`Reader.tsx`、`NoteEditor.tsx`、`PdfPage.tsx` | 共用笔记 PUT；PATCH `/api/materials/{id}/page-settings` |
+| 工作台初始视图 `/` | 首次进入、点击侧栏品牌链接或清空后 | 固定“未分类”、创建普通课程、导入 PDF、打开目录内课件、收起目录 | `frontend/src/App.tsx` | GET `/api/directory`、POST `/api/courses` |
+| 连续整理视图 `/note/…` | 顶部「整理」，首次默认连续；工具栏「连续阅读」可从单页返回并恢复目录状态 | 查看 PDF、逐页编辑、折叠笔记区、预览 Markdown、逐页折叠／展开 | `App.tsx`、`Reader.tsx`、`PdfPage.tsx`、`NoteEditor.tsx` | GET `/api/materials/{id}/pages`、GET `/api/materials/{id}/file` |
+| 复习连续视图 `/review/…` | 顶部「复习」，首次默认连续 | 逐页 PDF 与 Markdown 只读预览、笔记区临时折叠、逐页折叠与独立全屏；禁止笔记、目录、导入／删除／清空修改 | `App.tsx`、`Reader.tsx`、`NoteEditor.tsx` 的 `NotePreview` | 共用页面／文件 GET；先前编辑仍由 `drafts.ts` 保存 |
+| 复习单页视图 `/review/…` | 复习工具栏「单页阅读」 | 保留当前页，顶栏页码可输入并回车跳转，上一／下一页、←／↑ 上一页与 →／↓ 下一页、缩放／适应页面；返回连续时恢复页与页内位置，全屏与布局互不改变 | `Reader.tsx`、`App.tsx`、`reading.ts`、`PdfPage.tsx` | 共用页面／文件 GET，无新的模式 API |
+| 单页整理视图 `/note/…` | 整理工具栏「单页阅读」，目录默认收起，可用顶栏菜单键展开 | 单页编辑、翻页、跳转、缩放、适应页面、逐页折叠／展开、全屏 | `App.tsx`、`Reader.tsx`、`NoteEditor.tsx`、`PdfPage.tsx` | 共用笔记 PUT；PATCH `/api/materials/{id}/page-settings` |
+| 顶栏路径选择 | 已打开课件时悬停或点击课程或章节名称 | 课程菜单按章节分组，包含直属及子章节课件；章节菜单列出本章课件，当前课件高亮。课程和章节名称直接作为菜单入口。末级标题保留完整标题提示 | `ReadingLocation.tsx`、`App.tsx` | 复用目录快照、页面与文件 GET |
+| 课件直达 `/note/…` 或 `/review/…` | 从目录、顶栏、导入结果打开课件，或直接访问／刷新课件地址 | 按前缀恢复模式，按课件 ID 恢复课件。改名／移动后地址仍可使用。课件已删除或 ID 无效时提示并返回 `/`，前进／后退恢复对应的课件和模式 | `ReadingLocation.tsx`、`App.tsx` | GET 页面路由 `/note/…`、`/review/…`、GET `/api/directory`、页面与文件 GET |
 | 页面折叠／显示 | 每页页码左侧图标，宽屏悬停／聚焦显示，窄窗口及触屏常显 | 整理和复习均保存 normal／collapsed，折叠保留页码条；失败保持原状态，冲突读取最新状态后显式重试 | `Reader.tsx` 的 `togglePage` | PATCH `/api/materials/{id}/page-settings`；冲突时 GET `/api/materials/{id}/pages`，只合并显示属性 |
-| 课程目录 | 左侧课程 → 课程直属课件／章节 → 课件，标题最多两行，均为 `/` 内状态 | 创建课程、添加章节、折叠、改名、上移下移、拖动排序、跨章节／课程移动，跨课程需确认；普通空容器删除 | `Directory.tsx`、`directoryOrder.ts`、`directoryTree.ts`、`App.tsx` | GET `/api/directory`；POST `/api/courses`、`/api/chapters`；PATCH／DELETE `/api/courses/{id}`、`/api/chapters/{id}`；PATCH `/api/materials/{id}`；PUT `/api/directory/order` |
+| 课程目录 | 左侧课程 → 课程直属课件／章节 → 课件，标题最多两行，打开课件时更新路径 | 创建课程、添加章节、折叠、改名、上移下移、拖动排序、跨章节／课程移动，跨课程需确认；普通空容器删除 | `Directory.tsx`、`directoryOrder.ts`、`directoryTree.ts`、`App.tsx` | GET `/api/directory`；POST `/api/courses`、`/api/chapters`；PATCH／DELETE `/api/courses/{id}`、`/api/chapters/{id}`；PATCH `/api/materials/{id}`；PUT `/api/directory/order` |
 | 导入归属弹窗 | 导入按钮或将 PDF 拖入工作区，Ant Design 弹窗 | 选入 PDF 后立即并行检查文件可读性、加密状态、页数及内容重复；文件信息行同步显示页数。错误、加密和重复结果均在确认前反馈；重新选择文件时重做检查 | `ImportDialog.tsx`、`App.tsx` | GET `/api/materials/duplicates`；确认后 POST `/api/materials`；POST `/api/courses`、`/api/chapters` |
 | 跨课程转移确认 | 课件拖到另一课程／章节标题或课件间隙，或菜单选择另一课程目标 | 展示源位置与目标位置；取消不请求，确认后更新归属，保留页 ID 和笔记；目标折叠时自动展开 | `TransferDialog.tsx`、`Directory.tsx`、`directoryOrder.ts` | PUT `/api/directory/order`，包含 `transfers` 确认列表 |
 | 文件详情 | 整理模式下，从课件的「⋯」菜单进入 | 首项显示原文件状态，正常时可打开系统文件管理器并选中文件，缺失时可重新导入；标题自动换行，悬停或聚焦时显示输入边框，失焦保存；原始文件名与大小、目录路径、笔记条数和导入时间同列，文件大小按 B、KB 或 MB 显示，笔记条数下展示三个分项 | `Directory.tsx`、`MaterialDetails.tsx` | GET、PATCH `/api/materials/{id}`；POST `/api/materials/{id}/file/reveal`；PUT `/api/materials/{id}/file` |
@@ -81,7 +83,7 @@ backend/.venv/bin/python backend/run.py
 
 ## 阅读位置与只读边界
 
-整理和复习的布局各自在当前工作台会话内记忆，缩放属于当前课件阅读会话的前端状态，页面折叠／展开通过接口持久化，无独立路由或后端模式开关。切换模式保留稳定页面 ID 对应的草稿，连续布局记录可见原始页码与页内偏移；单页按原始页码浏览所有页面，包括折叠页；折叠页仍可展开。首次打开课件不强制滚动到第一篇正文。连续模式保留页码和页高占位，在视口邻近区域挂载笔记面板，焦点所在面板继续保留；草稿与保存由工作台管理，离屏卸载不会丢弃编辑。
+整理和复习的布局各自在当前工作台会话内记忆，缩放属于当前课件阅读会话的前端状态，页面折叠／展开通过接口持久化，由前端根据地址选择工作模式。切换模式保留稳定页面 ID 对应的草稿，连续布局记录可见原始页码与页内偏移；单页按原始页码浏览所有页面，包括折叠页；折叠页仍可展开。首次打开课件不强制滚动到第一篇正文。连续模式保留页码和页高占位，在视口邻近区域挂载笔记面板，焦点所在面板继续保留；草稿与保存由工作台管理，离屏卸载不会丢弃编辑。
 
 复习预览读取工作台草稿，先前编辑仍可完成自动保存；没有 textarea、添加／删除问答入口（页面折叠／展开仍可保存）。目录可选课件并临时折叠，拖动和变更菜单禁用／移除，导入与清空禁用。保存冲突可从顶栏告警直接进入冲突页整理视图。全屏失败显示可继续使用窗口布局的提示；Esc 只改变浏览器全屏状态。
 
@@ -89,7 +91,7 @@ backend/.venv/bin/python backend/run.py
 
 ## 阶段 5.5 外观更新（人工验收通过）
 
-独立路由仍仅 `/`，所有阅读／整理状态及接口保持原有约定。目录更多操作使用 Dropdown，“移动到…”先打开分组 Select 弹窗，再按需要确认跨课程转移；顶栏采用 Breadcrumb 与 Tabs，导入使用手动提交的 Upload.Dragger。页码指示位于面包屑旁，用 InputNumber 融合当前页与跳转，单页缩放用 Select，页码左侧悬停图标持久保存折叠／显示且不改变页码位置，阅读布局和编辑预览用 Segmented。笔记三区使用保留内容的无边框 Collapse、轻底色画布内自适应高度的 Input.TextArea 与 Alert；空状态仅在无内容时显示，问答始终保留条数。问答删除通过点击触发确认，保存记录以状态时间线呈现。
+整理和复习共用工作台，顶栏切换模式时更新地址前缀。目录更多操作使用 Dropdown，“移动到…”先打开分组 Select 弹窗，再按需要确认跨课程转移；顶栏采用 Breadcrumb 与 Tabs，导入使用手动提交的 Upload.Dragger。页码指示位于面包屑旁，用 InputNumber 融合当前页与跳转，单页缩放用 Select，页码左侧悬停图标持久保存折叠／显示且不改变页码位置，阅读布局和编辑预览用 Segmented。笔记三区使用保留内容的无边框 Collapse、轻底色画布内自适应高度的 Input.TextArea 与 Alert；空状态仅在无内容时显示，问答始终保留条数。问答删除通过点击触发确认，保存记录以状态时间线呈现。
 
 应用图标全部来自 @ant-design/icons；专用 Grid、PDF.js、Markdown、草稿及分隔线保留。各实现位置沿用上表，组件映射见下表。启动配置未变，新增图标直接依赖后需 ci、build，重新运行 PyCharm run 完成统一验收。
 
@@ -100,7 +102,7 @@ backend/.venv/bin/python backend/run.py
 | 明暗主题、跟随系统、减少动态效果 | ConfigProvider、主题算法、Design Token 及根节点 CSS 变量桥接 | frontend/src/theme.tsx |
 | 目录行、展开、创建与添加章节 | Tree、Button、Tooltip；原生层级、选中、展开与拖放 | frontend/src/Directory.tsx |
 | 目录“更多”与移动目标 | Dropdown 菜单、Modal、分组 Select；跨课程仍二次确认 | frontend/src/Directory.tsx、TransferDialog.tsx |
-| 顶栏 | Breadcrumb、Typography、Tabs、Tooltip、Button；共用阅读器 | frontend/src/App.tsx |
+| 顶栏 | Breadcrumb、Dropdown、Tabs、Tooltip、Button；共用阅读器 | frontend/src/App.tsx、ReadingLocation.tsx |
 | 保存状态与日志 | Badge、Popover、Divider；最近五条真实记录 | frontend/src/App.tsx |
 | 导入课件 | Modal、Upload.Dragger、Select、Input、Button、Alert；禁止自动上传，确认后请求 | frontend/src/ImportDialog.tsx |
 | 页码、缩放、翻页与页面折叠 | Select、InputNumber、Button、Tooltip、Space.Compact | frontend/src/Reader.tsx |

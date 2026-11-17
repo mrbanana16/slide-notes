@@ -190,3 +190,25 @@ def test_runtime_status_reports_one_timezone_aware_start_time(app):
     assert data["status"] == "ok"
     assert datetime.fromisoformat(data["started_at"]).utcoffset() is not None
     assert client.get("/api/status").get_json() == data
+
+
+def test_reading_paths_serve_workspace_without_catching_missing_assets(tmp_path, monkeypatch):
+    dist = tmp_path / "frontend" / "dist"
+    dist.mkdir(parents=True)
+    monkeypatch.setattr("slide_notes.BACKEND", tmp_path / "backend")
+    app = create_app(tmp_path / "data")
+    try:
+        client = app.test_client()
+        assert client.get("/review/id").status_code == 503
+
+        (dist / "index.html").write_text("<title>reader</title>", encoding="utf-8")
+        for path in ("/", "/note", "/review", "/note/id", "/review/id"):
+            response = client.get(path)
+            assert response.status_code == 200
+            assert response.get_data(as_text=True) == "<title>reader</title>"
+            response.close()
+
+        for path in ("/assets/missing.js", "/pdf/wasm/missing.wasm", "/api/nonexistent", "/read", "/read/id", "/read/id/old-title.pdf"):
+            assert client.get(path).status_code == 404
+    finally:
+        app.extensions["engine"].dispose()

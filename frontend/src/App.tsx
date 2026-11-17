@@ -1,5 +1,5 @@
 import { ReadOutlined, UploadOutlined, SettingOutlined, MenuFoldOutlined, MenuUnfoldOutlined, FullscreenOutlined, FullscreenExitOutlined } from '@ant-design/icons'
-import { Alert, Badge, Breadcrumb, Divider as AntDivider, Empty, Spin, Tabs, Tag, Typography, Tooltip, Button, Drawer, Modal, notification, Popover } from 'antd'
+import { Alert, Badge, Divider as AntDivider, Empty, Spin, Tabs, Tag, Tooltip, Button, Drawer, Modal, notification, Popover } from 'antd'
 import { Divider, PdfIcon, useLayoutSize } from './ReadingControls'
 import { useEffect, useEffectEvent, useRef, useState, useSyncExternalStore, type CSSProperties } from 'react'
 import { getDocument, GlobalWorkerOptions, type PDFDocumentProxy } from 'pdfjs-dist'
@@ -14,6 +14,7 @@ import { ImportDialog } from './ImportDialog'
 import { materialPath } from './directoryOrder'
 import { WorkspaceTheme, overlayContainer, useDisplayMode, useMediaPreference } from './theme'
 import { SystemSettings } from './SystemSettings'
+import { ReadingLocation, readingPath, readingRoute } from './ReadingLocation'
 import './styles.css'
 
 GlobalWorkerOptions.workerSrc = workerUrl
@@ -48,13 +49,21 @@ export default function App() {
   const [importCourse, setImportCourse] = useState('')
   const [importChapter, setImportChapter] = useState('')
   const [documentRetry, setDocumentRetry] = useState(0)
-  const [selected, setSelected] = useState<Material | null>(null)
+  const [pathname, setPathname] = useState(() => window.location.pathname)
+  const [directoryReady, setDirectoryReady] = useState(false)
+  const [routeWarning, setRouteWarning] = useState(false)
+  const route = readingRoute(pathname)
+  const hasReadingRoute = !!route
+  const mode = route?.mode ?? 'organize'
+  const selectedId = route?.materialId
+  const selected = materials.find(material => material.id === selectedId) ?? null
   const [pages, setPages] = useState<Page[]>([])
   const [store] = useState(() => new DraftStore())
   const [, refreshDrafts] = useState(0)
   useEffect(() => store.subscribe(() => refreshDrafts(value => value + 1)), [store])
   useEffect(() => () => store.dispose(), [store])
-  const [pdf, setPdf] = useState<PDFDocumentProxy | null>(null)
+  const [loadedDocument, setLoadedDocument] = useState<{ materialId: string; pdf: PDFDocumentProxy } | null>(null)
+  const pdf = loadedDocument && loadedDocument.materialId === selected?.id ? loadedDocument.pdf : null
   const [error, setError] = useState<OperationError | null>(null)
   const [importError, setImportError] = useState<OperationError | null>(null)
   const [loading, setLoading] = useState(true)
@@ -82,7 +91,6 @@ export default function App() {
     }
   }
   const [sidebar, setSidebar] = useState(true)
-  const [mode, setMode] = useState<Mode>('organize')
   const [layouts, setLayouts] = useState<Record<Mode, ReadingLayout>>({ organize: 'continuous', review: 'continuous' })
   const layout = layouts[mode]
   const readOnly = mode === 'review'
@@ -104,6 +112,36 @@ export default function App() {
     return () => observer.disconnect()
   }, [])
   const dirtyCount = store.dirtyPages
+
+  function navigate(path: string, replace = false) {
+    if (window.location.pathname !== path) {
+      window.history[replace ? 'replaceState' : 'pushState'](null, '', path)
+      setPathname(path)
+    }
+    setRouteWarning(false)
+  }
+
+  function openMaterial(material: Material) {
+    navigate(readingPath(mode, material.id))
+    setDrawer(false)
+  }
+
+  useEffect(() => {
+    const sync = () => {
+      setPathname(window.location.pathname)
+      setRouteWarning(false)
+    }
+    window.addEventListener('popstate', sync)
+    return () => window.removeEventListener('popstate', sync)
+  }, [])
+
+  useEffect(() => {
+    if (!directoryReady || pathname === '/' || window.location.pathname !== pathname) return
+    const valid = hasReadingRoute && (!selectedId || !!selected)
+    const canonical = valid ? readingPath(mode, selectedId) : '/'
+    if (canonical !== pathname) navigate(canonical, true)
+    if (!valid) setRouteWarning(true)
+  }, [directoryReady, hasReadingRoute, mode, pathname, selected, selectedId])
 
   async function loadMaterials(reportError = setError) {
     const generation = loadGeneration.current
@@ -189,12 +227,15 @@ export default function App() {
     return () => window.removeEventListener('beforeunload', warn)
   }, [dirtyCount])
   useEffect(() => {
-    if (!selected) return
-    let stopped = false
-    const generation = loadGeneration.current
-    setPdf(null)
+    setLoadedDocument(null)
     setPages([])
     setOriginalUnavailable(false)
+    if (!selected) {
+      setDocumentLoading(false)
+      return
+    }
+    let stopped = false
+    const generation = loadGeneration.current
     setError(null)
     setDocumentLoading(true)
     if (reader.current) reader.current.scrollTop = 0
@@ -203,7 +244,7 @@ export default function App() {
       if (stopped || generation !== loadGeneration.current) return
       setPages(nextPages)
       store.bindPages(nextPages, selected.id)
-      setPdf(doc)
+      setLoadedDocument({ materialId: selected.id, pdf: doc })
     }).catch(cause => {
       if (stopped || generation !== loadGeneration.current) return
       if (cause?.status === 410 || ['InvalidPDFException', 'PasswordException'].includes(cause?.name)) setOriginalUnavailable(true)
@@ -231,7 +272,7 @@ export default function App() {
 
   function applyDirectory(next: DirectoryData) {
     setDirectory(next)
-    setSelected(old => old ? next.materials.find(m => m.id === old.id) ?? null : null)
+    setDirectoryReady(true)
   }
   async function mutateDirectory(url: string, method: string, body: object): Promise<boolean> {
     if (operation.current || readOnly) return false
@@ -277,6 +318,7 @@ export default function App() {
       store.pause(true); paused = true
       const next = await api<DirectoryData>(`/api/materials/${material.id}`, { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ revision: directory.revision, confirmation: material.id }) })
       store.removePages(detail.page_ids)
+      if (readingRoute(window.location.pathname)?.materialId === material.id) navigate('/', true)
       applyDirectory(next)
       setNotice('课件及其关联笔记已删除。')
     } catch (cause) { setError({ message: cause instanceof Error ? cause.message : '删除失败，请重试。', reload: cause instanceof ApiError && cause.status === 409 }) }
@@ -287,7 +329,7 @@ export default function App() {
     const current = await loadMaterials(setImportError)
     const material = current?.materials.find(m => m.id === duplicate.id)
     if (!material) { setImportError({ message: '课件目录未能加载或课件已被删除，请重新加载目录。', reload: true }); return }
-    setSelected(material); closeImport()
+    openMaterial(material); closeImport()
   }
   async function upload(file?: File, createCopy = false) {
     if (!file || checkingFile || checkedImport?.error || operation.current || readOnly) return
@@ -312,7 +354,7 @@ export default function App() {
       }
       if (!await loadMaterials(setImportError)) return
       closeImport()
-      setSelected(material)
+      openMaterial(material)
     } catch (cause) { setImportError({ message: cause instanceof Error ? cause.message : '导入失败，请重试。' }) }
     finally { operation.current = false; setUploading(false) }
   }
@@ -339,10 +381,10 @@ export default function App() {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(restoreId ? { confirmation: 'RESTORE_BACKUP' } : { confirmation: 'DELETE_ALL_DATA', ...(backup ? { backup } : {}) }),
       })
-      setSelected(null)
-      setPdf(null)
+      navigate('/', true)
+      setLoadedDocument(null)
       setPages([])
-      setDirectory(result.directory)
+      applyDirectory(result.directory)
       closeImport()
       store.clear()
       setLoading(false)
@@ -356,9 +398,14 @@ export default function App() {
   }
 
   const directoryPanel = <>
-      <div className="brand"><ReadOutlined className="brandMark" aria-hidden="true" /><div><strong>slide-notes</strong><small>把理解留在每一页</small></div></div>
+      <a className="brand" href="/" onClick={event => {
+        if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+        event.preventDefault()
+        navigate('/')
+        setDrawer(false)
+      }}><ReadOutlined className="brandMark" aria-hidden="true" /><div><strong>slide-notes</strong><small>把理解留在每一页</small></div></a>
       <div className="directoryImport"><Button type="primary" disabled={readOnly || uploading || resetting || directoryBusy || loading} onClick={() => prepareImport()}>{uploading ? '正在导入…' : <><UploadOutlined aria-hidden="true" /> 导入 PDF</>}</Button></div>
-      <Directory readOnly={readOnly} data={directory} selected={selected?.id} busy={loading || uploading || resetting || directoryBusy || replacingOriginal} onRestoreOriginal={restoreOriginal} onSelect={material => { setSelected(material); setDrawer(false) }} mutate={mutateDirectory} onDelete={deleteMaterial} />
+      <Directory readOnly={readOnly} data={directory} selected={selected?.id} busy={loading || uploading || resetting || directoryBusy || replacingOriginal} onRestoreOriginal={restoreOriginal} onSelect={material => openMaterial(material)} mutate={mutateDirectory} onDelete={deleteMaterial} />
       <div className="sidebarBottom"><Button type="text" onClick={() => { setDrawer(false); setSettingsOpen(true) }}><SettingOutlined aria-hidden="true" /> 系统设置</Button></div>
   </>
   useEffect(() => {
@@ -373,8 +420,10 @@ export default function App() {
   const sidebarVisible = singleOrganize ? immersiveSidebar : sidebar
   const directoryVisible = narrow ? drawer : sidebarVisible
   function changeMode(next: Mode) {
-    if (next !== mode) { setDrawer(false); setImmersiveSidebar(false) }
-    setMode(next)
+    if (next === mode) return
+    setDrawer(false)
+    setImmersiveSidebar(false)
+    navigate(readingPath(next, selectedId))
   }
   function changeLayout(next: ReadingLayout) {
     if (next === layout) return
@@ -514,11 +563,9 @@ export default function App() {
       <Tooltip title={directoryVisible ? '收起目录' : '展开目录'}>
       <Button type="text" className="sidebarToggle" aria-expanded={directoryVisible}
         aria-label={directoryVisible ? '收起目录' : '展开目录'} onClick={() => toggleDirectory()}>{directoryVisible ? <MenuFoldOutlined /> : <MenuUnfoldOutlined />}</Button></Tooltip>
-      <div className="readingLocation"><Breadcrumb className="breadcrumb" items={selected ? [
-        { title: directory.courses.find(c => c.id === selected.course_id)?.name },
-        ...(selected.chapter_id ? [{ title: directory.chapters.find(c => c.id === selected.chapter_id)?.name }] : []),
-        { title: <Tooltip title={selected.title}><Typography.Text ellipsis>{selected.title}</Typography.Text></Tooltip> },
-      ] : [{ title: '学习工作台' }]} /><div ref={pageNavigator} className="pageNavigatorHost" /></div>
+      <div className="readingLocation"><ReadingLocation directory={directory} selected={selected}
+        disabled={loading || directoryBusy || uploading || resetting || replacingOriginal}
+        onSelect={openMaterial} /><div ref={pageNavigator} className="pageNavigatorHost" /></div>
       <Tooltip title={full ? '退出全屏' : '全屏'}>
       <Button type="text" className="fullIcon" aria-label={full ? '退出全屏' : '全屏'} title={full ? '退出全屏' : '全屏'} onClick={() => void fullscreen()}>
         {full ? <FullscreenExitOutlined /> : <FullscreenOutlined />}
@@ -544,7 +591,8 @@ export default function App() {
         </Button>
       </Popover>
     </header>
-    <div className="systemAlerts">{offline && <Alert type="error" showIcon title={<>后端连接失败，请检查服务是否运行，重连成功后将自动尝试保存。{retrySeconds
+    <div className="systemAlerts">{routeWarning && <Alert type="warning" showIcon title="无法打开此课件。课件可能已删除，或地址无效。"
+      closable={{ onClose: () => setRouteWarning(false) }} />}{offline && <Alert type="error" showIcon title={<>后端连接失败，请检查服务是否运行，重连成功后将自动尝试保存。{retrySeconds
       ? `将在 ${retrySeconds} s 后重试连接…` : '正在重试连接…'}</>} />}
     {selected && originalUnavailable && !resetting && <Alert type="warning" showIcon title="请重新导入原始 PDF 以恢复阅读。"
       action={<Button disabled={readOnly} loading={replacingOriginal} onClick={() => originalInput.current?.click()}>重新导入原文件</Button>} />}
@@ -562,7 +610,7 @@ export default function App() {
       {store.storageError && <p role="alert" className="errorBanner">{store.storageError}</p>}
       {directoryBusy && <p role="status">正在保存目录…</p>}
       {loading && <p className="loading" role="status">正在读取课件目录…</p>}
-      {!selected && !loading && <div className="emptyState"><Empty image={<ReadOutlined />} description={false} /><h1>从一份课件开始</h1><p>课件在左，理解在右。<br />逐页阅读，把重点写成自己的笔记。</p><Button type="primary" disabled={readOnly || uploading || resetting || directoryBusy || loading} onClick={() => prepareImport()}>{uploading ? '正在校验并导入…' : '导入 PDF 课件'}</Button><small>也可将 PDF 拖到这里 · 最大 100 MB</small>{materials.length > 0 && <p>或从左侧目录打开已有课件。</p>}</div>}
+      {!selected && !loading && <div className="emptyState"><Empty image={<ReadOutlined />} description={false} /><h1>从一份课件开始</h1><p>课件在左，理解在右。<br />逐页阅读，把重点写成自己的笔记。</p><Button type="primary" disabled={readOnly || uploading || resetting || directoryBusy || loading} onClick={() => prepareImport()}>{uploading ? '正在校验并导入…' : '导入 PDF 课件'}</Button></div>}
       {selected && !resetting && <><div className="documentHeading"><PdfIcon /><h1>{selected.title}</h1><Tag>{selected.page_count}页</Tag></div>{documentLoading && <div className="loading" role="status"><Spin size="small" /> 正在加载课件…</div>}{pdf && <Reader key={selected.id} materialId={selected.id} pages={pages} pdf={pdf} store={store} onFailure={message => toast.error({ title: message, duration: ERROR_DURATION, key: 'page-settings' })} mode={mode} layout={layout} onLayout={changeLayout} reader={reader} pageNavigator={pageNavigator} onSettings={settings => setPages(old => old.map(page => { const next = settings.find(item => item.id === page.id); return next ? { ...page, display: next.display, settings_version: next.settings_version } : page }))} />}</>}
       {selected && originalUnavailable && !resetting && <Empty className="originalUnavailable" description="原始 PDF 丢失或无法读取，已保存的笔记仍在。" />}
     </main></section>

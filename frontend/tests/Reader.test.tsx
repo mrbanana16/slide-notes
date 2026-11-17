@@ -1,11 +1,10 @@
-import { openMaterial } from './testInteractions'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import App from '../src/App'
 
 vi.mock('pdfjs-dist', () => ({ GlobalWorkerOptions: {}, getDocument: () => ({ promise: Promise.resolve({}), destroy: () => Promise.resolve() }) }))
 vi.mock('../src/PdfPage', () => ({ PdfPage: ({ number }: { number: number }) => <div>PDF 第 {number} 页</div> }))
-afterEach(() => { cleanup(); localStorage.clear(); vi.unstubAllGlobals(); vi.restoreAllMocks() })
+afterEach(() => { cleanup(); window.history.replaceState(null, '', '/'); localStorage.clear(); vi.unstubAllGlobals(); vi.restoreAllMocks() })
 
 function fixture(displays = ['normal', 'normal', 'normal']) {
   let pages = displays.map((display, i) => ({ id: `p${i + 1}`, number: i + 1, note: '', version: 0, summary: '', summary_version: 0, qa: [], display, settings_version: 0 }))
@@ -25,8 +24,8 @@ function fixture(displays = ['normal', 'normal', 'normal']) {
   return fetch
 }
 async function open() {
+  window.history.replaceState(null, '', '/note/a')
   render(<App />)
-  await openMaterial('课件.pdf')
   await screen.findByText('PDF 第 1 页', {}, { timeout: 3500 })
 }
 it('preserves unsaved drafts across modes and layouts and provides strictly read-only review', async () => {

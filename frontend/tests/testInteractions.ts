@@ -17,7 +17,7 @@ export async function directoryAction(name: string, action: string) {
 }
 
 export async function openMaterial(name: string) {
-  await screen.findByText(name)
+  await screen.findAllByText(name)
   const item = await waitFor(() => {
     const current = screen.getByLabelText(name)
     if (current.closest('[role="treeitem"]')?.getAttribute('aria-disabled') === 'true') throw new Error('目录仍在加载')

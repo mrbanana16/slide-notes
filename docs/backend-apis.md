@@ -288,6 +288,7 @@ PyCharm 共享配置 `run` 使用项目 Node.js 执行 `npm ci` 和 `npm run bui
 | 方法 | 请求路径／链接 | 处理函数 | 作用与返回 |
 |---|---|---|---|
 | GET | [http://127.0.0.1:5001/](http://127.0.0.1:5001/) | `index` | 返回 `frontend/dist/index.html`；未构建时返回 503 和构建提示文本 |
+| GET | `/note/{material_id}`、`/review/{material_id}`，含无课件的 `/note`、`/review` | `index` | 返回同一工作台页面；未构建时返回 503。前端恢复模式并通过目录快照核对课件 ID。原 `/read` 页面路由已移除 |
 | GET | `http://127.0.0.1:5001/{filename}` | `assets` | 在 `frontend/dist/` 内安全读取静态文件；包括 `/assets/…` 及 `/pdf/cmaps/…`、`/pdf/standard_fonts/…`、`/pdf/wasm/…`；`.mjs` 模块显式返回 `text/javascript`，文件不存在时返回 404 |
 
 Flask 会为 GET 路由提供标准 HEAD 行为，并默认提供 OPTIONS 响应。后端为 `.mjs` 显式设置 `text/javascript`，不依赖 Windows 与 macOS 不同的本机 MIME 映射；PDF.js worker 可被浏览器按模块脚本加载。开发环境页面和 PDF 辅助资源由 Vite 提供，配置位置为 [vite.config.ts](../frontend/vite.config.ts)。

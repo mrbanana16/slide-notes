@@ -4,6 +4,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { getDocument } from 'pdfjs-dist'
 import { createHash } from 'node:crypto'
 import App from '../src/App'
+import type { Material } from '../src/api'
 
 vi.mock('pdfjs-dist', () => ({
   GlobalWorkerOptions: {},
@@ -33,14 +34,14 @@ beforeEach(() => {
   })
 })
 
-afterEach(() => { cleanup(); localStorage.clear(); vi.unstubAllGlobals(); vi.restoreAllMocks() })
+afterEach(() => { cleanup(); window.history.replaceState(null, '', '/'); localStorage.clear(); vi.unstubAllGlobals(); vi.restoreAllMocks() })
 const materials = [
   { id: 'a', title: '第一份.pdf', page_count: 1, course_id: 'course', chapter_id: null, position: 0 },
   { id: 'b', title: '第二份.pdf', page_count: 1, course_id: 'course', chapter_id: null, position: 1 },
 ]
 
 const system = { id: 'system', name: '未分类', position: 0, is_system: true }
-const directory = (items = materials) => ({ revision: 0, courses: [system, { id: 'course', name: '数据结构', position: 1 }], chapters: [], materials: items })
+const directory = (items: Material[] = materials) => ({ revision: 0, courses: [system, { id: 'course', name: '数据结构', position: 1 }], chapters: [], materials: items })
 const duplicateLookup = '/api/materials/duplicates?sha256='
 
 it('keeps unsaved notes bound to their page when switching materials and warns before closing', async () => {
@@ -249,6 +250,7 @@ it('moves the open material without reloading its pages or losing an unsaved dra
   await chooseOption('移动第一份.pdf到章节', '第一章')
   fireEvent.click(screen.getByRole('button', { name: /移\s*动/ }))
   await screen.findByText('目录已保存。')
+  expect(window.location.pathname).toBe('/note/a')
   expect((screen.getByLabelText('个人笔记') as HTMLTextAreaElement).value).toBe('移动中保持的草稿')
   expect(fetch.mock.calls.filter(call => call[0] === '/api/materials/a/pages')).toHaveLength(1)
   const mutation = fetch.mock.calls.find(call => call[0] === '/api/directory/order')!
@@ -302,6 +304,7 @@ it('shows saved note counts, cancels deletion, and clears only the confirmed mat
   await directoryAction('第一份.pdf', '删除课件')
   fireEvent.click(await screen.findByRole('button', { name: '确认删除' }))
   await screen.findByText('课件及其关联笔记已删除。')
+  expect(window.location.pathname).toBe('/')
   finishSave(new Response(JSON.stringify({ id: 'page-a', number: 1, note: '迟到保存', version: 1 })))
   await waitFor(() => expect(screen.queryByText('1 页未保存')).toBeNull())
   expect(screen.queryByText('第一份.pdf')).toBeNull()
@@ -682,6 +685,8 @@ it('shows the full title in a tooltip in the directory and toolbar', async () =>
   const toolbarName = await within(breadcrumb).findByText(filename)
   fireEvent.mouseEnter(toolbarName)
   expect((await screen.findByRole('tooltip')).textContent).toBe(filename)
+  expect(within(breadcrumb).queryByRole('button', { name: '课件：' + filename })).toBeNull()
+  expect(screen.queryByRole('menu')).toBeNull()
 })
 
 it('shows file details and updates the sidebar, toolbar and editor title on blur', async () => {
@@ -730,6 +735,7 @@ it('shows file details and updates the sidebar, toolbar and editor title on blur
   await screen.findByRole('heading', { name: editedTitle.trim() })
   expect(screen.getByLabelText(editedTitle.trim())).toBeTruthy()
   expect(document.querySelector('.breadcrumb')?.textContent).toContain(editedTitle.trim())
+  expect(window.location.pathname).toBe('/note/a')
   const patch = fetch.mock.calls.find(([, options]) => options?.method === 'PATCH')
   expect(patch?.[0]).toBe('/api/materials/a')
   expect(JSON.parse(String(patch?.[1]?.body))).toEqual({ title: editedTitle.trim(), revision: 0 })
@@ -780,4 +786,88 @@ it('restores a missing original from details without opening the material', asyn
   expect(restore?.[0]).toBe('/api/materials/b/file')
   expect(((restore?.[1]?.body as FormData).get('file') as File).name).toBe('第二份.pdf')
   expect(fetch.mock.calls.some(([url]) => url.endsWith('/pages'))).toBe(false)
+})
+
+it('restores a moved material by ID and switches from the course and chapter breadcrumbs', async () => {
+  const course = { id: 'course', name: '数据/结构', position: 1 }
+  const chapter = { id: 'chapter', course_id: course.id, name: '..', position: 0 }
+  const moved = { ...materials[0], title: '已改名 #1.pdf', chapter_id: chapter.id }
+  const peer = { ...materials[1], id: 'peer', title: '同章课件.pdf', chapter_id: chapter.id }
+  const snapshot = { ...directory([moved, materials[1], peer]), courses: [system, course], chapters: [chapter] }
+  window.history.replaceState(null, '', '/note/a')
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => Response.json(url === '/api/directory'
+    ? snapshot : [{ id: 'page-' + url.split('/')[3], number: 1, note: '', version: 0 }])))
+
+  const app = render(<App />)
+  await screen.findByRole('heading', { name: moved.title })
+  expect(window.location.pathname).toBe('/note/a')
+
+  fireEvent.mouseEnter(screen.getByRole('button', { name: '章节：..' }))
+  const chapterMenu = await screen.findByRole('menu')
+  expect(within(chapterMenu).queryByRole('menuitem', { name: materials[1].title })).toBeNull()
+  fireEvent.click(within(chapterMenu).getByRole('menuitem', { name: peer.title }))
+  await screen.findByRole('heading', { name: peer.title })
+
+  fireEvent.click(screen.getByRole('button', { name: '课程：数据/结构' }))
+  const courseMenu = await screen.findByRole('menu')
+  expect(within(courseMenu).getByRole('menuitem', { name: peer.title })).toBeTruthy()
+  fireEvent.click(within(courseMenu).getByRole('menuitem', { name: materials[1].title }))
+  await screen.findByRole('heading', { name: materials[1].title })
+  expect(window.location.pathname).toBe('/note/b')
+
+  await act(async () => { window.history.back() })
+  await screen.findByRole('heading', { name: peer.title })
+  await act(async () => { window.history.forward() })
+  await screen.findByRole('heading', { name: materials[1].title })
+
+  app.unmount()
+  render(<App />)
+  await screen.findByRole('heading', { name: materials[1].title })
+
+  const brand = screen.getByRole('link', { name: /slide-notes.*把理解留在每一页/ })
+  expect(brand.getAttribute('href')).toBe('/')
+  fireEvent.click(within(brand).getByText('把理解留在每一页'))
+  expect(window.location.pathname).toBe('/')
+  const home = within(screen.getByRole('main'))
+  expect(home.getByRole('heading', { name: '从一份课件开始' })).toBeTruthy()
+  expect(home.queryByText(/也可将 PDF 拖到这里|或从左侧目录打开已有课件/)).toBeNull()
+  await act(async () => { window.history.back() })
+  await screen.findByRole('heading', { name: materials[1].title })
+})
+
+it.each(['/note/missing', '/review/%ZZ', '/read/a'])('returns to the workspace for a deleted or invalid reading address %s', async path => {
+  window.history.replaceState(null, '', path)
+  const fetch = vi.fn(async () => Response.json(directory()))
+  vi.stubGlobal('fetch', fetch)
+  render(<App />)
+  await screen.findByText('无法打开此课件。课件可能已删除，或地址无效。')
+  expect(window.location.pathname).toBe('/')
+  expect(screen.getByRole('heading', { name: '从一份课件开始' })).toBeTruthy()
+  expect(fetch.mock.calls).toEqual([['/api/directory', undefined]])
+})
+
+it('restores the selected mode from the address on refresh and browser navigation', async () => {
+  window.history.replaceState(null, '', '/review/a')
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => Response.json(url === '/api/directory'
+    ? directory() : [{ id: 'page-a', number: 1, note: '', version: 0 }])))
+
+  const app = render(<App />)
+  await screen.findByText('PDF 第 1 页')
+  expect(screen.getByRole('tab', { name: '复习' }).getAttribute('aria-selected')).toBe('true')
+  expect(screen.queryByLabelText('个人笔记')).toBeNull()
+
+  fireEvent.click(screen.getByRole('tab', { name: '整理' }))
+  expect(window.location.pathname).toBe('/note/a')
+  await screen.findByLabelText('个人笔记')
+
+  await act(async () => { window.history.back() })
+  await waitFor(() => expect(screen.getByRole('tab', { name: '复习' }).getAttribute('aria-selected')).toBe('true'))
+  expect(window.location.pathname).toBe('/review/a')
+  await act(async () => { window.history.forward() })
+  await screen.findByLabelText('个人笔记')
+
+  app.unmount()
+  render(<App />)
+  await screen.findByLabelText('个人笔记')
+  expect(window.location.pathname).toBe('/note/a')
 })
